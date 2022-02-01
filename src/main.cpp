@@ -81,12 +81,14 @@ void ScanI2C(TwoWire* i2c) {
   Serial.println("done");
 }
 
+#ifdef ENABLE_TEST_OUTPUT_PIN
 void ToggleTestOutputPin(void * parameter) {
   while (true) {
     digitalWrite(kTestOutputPin, !digitalRead(kTestOutputPin));
     delay(kTestOutputInterval);
   }
 }
+#endif
 
 // The setup function performs one-time application initialization.
 void setup() {
