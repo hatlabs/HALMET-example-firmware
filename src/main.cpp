@@ -131,21 +131,27 @@ void setup() {
 
   // Connect the tank senders
   auto tank_a_volume = ConnectTankSender(ads1115, 0, "A");
+  // auto tank_b_volume = ConnectTankSender(ads1115, 1, "B");
+  // auto tank_c_volume = ConnectTankSender(ads1115, 2, "C");
+  // auto tank_d_volume = ConnectTankSender(ads1115, 3, "D");
 
   // Connect the tacho senders
   auto tacho_1_frequency = ConnectTachoSender(kDigitalInputPin1, "1");
 
   // Connect the alarm inputs
   auto alarm_2_input = ConnectAlarmSender(kDigitalInputPin2, "2");
-  auto alarm_3_input = ConnectAlarmSender(kDigitalInputPin3, "3");
-  auto alarm_4_input = ConnectAlarmSender(kDigitalInputPin4, "4");
+  // auto alarm_3_input = ConnectAlarmSender(kDigitalInputPin3, "3");
+  // auto alarm_4_input = ConnectAlarmSender(kDigitalInputPin4, "4");
 
+  // Update the alarm states based on the input value changes
   alarm_2_input->connect_to(
       new LambdaConsumer<bool>([](bool value) { alarm_states[1] = value; }));
-  alarm_3_input->connect_to(
-      new LambdaConsumer<bool>([](bool value) { alarm_states[2] = value; }));
-  alarm_4_input->connect_to(
-      new LambdaConsumer<bool>([](bool value) { alarm_states[3] = value; }));
+  // alarm_3_input->connect_to(
+  //     new LambdaConsumer<bool>([](bool value) { alarm_states[2] = value; }));
+  // alarm_4_input->connect_to(
+  //     new LambdaConsumer<bool>([](bool value) { alarm_states[3] = value; }));
+
+
 
   // Connect the outputs to the display
   if (display_present) {
@@ -160,6 +166,7 @@ void setup() {
     tacho_1_frequency->connect_to(new LambdaConsumer<float>(
         [](float value) { PrintValue(display, 3, "RPM 1", 60 * value); }));
 
+    // Create a "christmas tree" display for the alarms
     app.onRepeat(1000, []() {
       char state_string[5] = {};
       for (int i = 0; i < 4; i++) {
