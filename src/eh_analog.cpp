@@ -5,25 +5,6 @@
 #include "sensesp/transforms/curveinterpolator.h"
 #include "sensesp/transforms/linear.h"
 
-// Interpolator to convert the input voltage to a fuel level ratio
-class FuelLevelInterpolator : public CurveInterpolator {
- public:
-  FuelLevelInterpolator(String config_path = "")
-      : CurveInterpolator(NULL, config_path) {
-    // If saved configuration hasn't been loaded, use the default values
-    if (samples_.empty()) {
-      // Populate a lookup table to translate the ohm values returned by
-      // the tank sender to fill level
-      clear_samples();
-
-      // This curve corresponds to a European standard (0-180 ohms) tank sender
-      // addSample(CurveInterpolator::Sample(knownOhmValue, knownFuelLevel));
-      add_sample(CurveInterpolator::Sample(0, 0));
-      add_sample(CurveInterpolator::Sample(180., 1));
-      add_sample(CurveInterpolator::Sample(300., 1));
-    }
-  }
-};
 
 // ADS1115 input hardware scale factor (input voltage vs voltage at ADS1115)
 const float kAnalogInputScale = 29. / 2.048;
@@ -66,9 +47,17 @@ FloatProducer* ConnectTankSender(Adafruit_ADS1115* ads1115, int channel,
 
   snprintf(config_path, sizeof(config_path), "/Tank %s/Level Curve",
            name.c_str());
-  auto tank_level = (new FuelLevelInterpolator(config_path))
+  auto tank_level = (new CurveInterpolator(nullptr, config_path))
                         ->set_input_title("Sender Resistance (ohms)")
                         ->set_output_title("Fuel Level (ratio)");
+
+  if (tank_level->get_samples().empty()) {
+    // If there's no prior configuration, provide a default curve
+    tank_level->clear_samples();
+    tank_level->add_sample(CurveInterpolator::Sample(0, 0));
+    tank_level->add_sample(CurveInterpolator::Sample(180., 1));
+    tank_level->add_sample(CurveInterpolator::Sample(300., 1));
+  }
 
   snprintf(config_path, sizeof(config_path), "/Tank %s/Current Level SK Path",
            name.c_str());
