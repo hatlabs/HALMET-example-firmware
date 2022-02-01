@@ -11,7 +11,7 @@ class FuelLevelInterpolator : public CurveInterpolator {
   FuelLevelInterpolator(String config_path = "")
       : CurveInterpolator(NULL, config_path) {
     // If saved configuration hasn't been loaded, use the default values
-    if (samples.empty()) {
+    if (samples_.empty()) {
       // Populate a lookup table to translate the ohm values returned by
       // the tank sender to fill level
       clear_samples();
@@ -25,8 +25,11 @@ class FuelLevelInterpolator : public CurveInterpolator {
   }
 };
 
-// ADS1115 input hardware scale factor
+// ADS1115 input hardware scale factor (input voltage vs voltage at ADS1115)
 const float kAnalogInputScale = 29. / 2.048;
+
+// Engine Hat constant measurement current (A)
+const float kMeasurementCurrent = 0.01;
 
 // Default fuel tank size, in m3
 const float kTankDefaultSize = 120. / 1000;
@@ -40,48 +43,51 @@ FloatProducer* ConnectTankSender(Adafruit_ADS1115* ads1115, int channel,
   char meta_display_name[80];
   char meta_description[80];
 
-  snprintf(config_path, sizeof(config_path), "/analog/input_%s/voltage",
+  snprintf(config_path, sizeof(config_path), "/Tank %s/Resistance",
            name.c_str());
-  auto input_voltage = new RepeatSensor<float>(1000, [ads1115, channel]() {
-    int16_t adc_output = ads1115->readADC_SingleEnded(channel);
-    float adc_output_volts = ads1115->computeVolts(adc_output);
-    return kAnalogInputScale * adc_output_volts;
-  });
+  auto sender_resistance =
+      new RepeatSensor<float>(ads_read_delay, [ads1115, channel]() {
+        int16_t adc_output = ads1115->readADC_SingleEnded(channel);
+        float adc_output_volts = ads1115->computeVolts(adc_output);
+        return kAnalogInputScale * adc_output_volts / kMeasurementCurrent;
+      });
 
-  snprintf(config_path, sizeof(config_path), "/analog/%s/inputVoltage/skPath",
+  snprintf(config_path, sizeof(config_path), "/Tank %s/Resistance SK Path",
            name.c_str());
-  snprintf(sk_path, sizeof(sk_path), "tanks.fuel.%s.senderVoltage",
+  snprintf(sk_path, sizeof(sk_path), "tanks.fuel.%s.senderResistance",
            name.c_str());
-  snprintf(meta_display_name, sizeof(meta_display_name), "Input voltage %s",
+  snprintf(meta_display_name, sizeof(meta_display_name), "Resistance %s",
            name.c_str());
   snprintf(meta_description, sizeof(meta_description),
-           "Calculated voltage at input %s", name.c_str());
-  auto input_voltage_sk_output = new SKOutputFloat(
+           "Measured tank %s sender resistance", name.c_str());
+  auto sender_resistance_sk_output = new SKOutputFloat(
       sk_path, config_path,
-      new SKMetadata("V", meta_display_name, meta_description));
+      new SKMetadata("ohm", meta_display_name, meta_description));
 
-  snprintf(config_path, sizeof(config_path),
-           "/analog/%s/fuelTank/currentLevel/interpolator", name.c_str());
-  auto tank_level = new FuelLevelInterpolator(config_path);
+  snprintf(config_path, sizeof(config_path), "/Tank %s/Level Curve",
+           name.c_str());
+  auto tank_level = (new FuelLevelInterpolator(config_path))
+                        ->set_input_title("Sender Resistance (ohms)")
+                        ->set_output_title("Fuel Level (ratio)");
 
-  snprintf(config_path, sizeof(config_path),
-           "/analog/%s/fuelTank/currentLevel/skPath", name.c_str());
+  snprintf(config_path, sizeof(config_path), "/Tank %s/Current Level SK Path",
+           name.c_str());
   snprintf(sk_path, sizeof(sk_path), "tanks.fuel.%s.currentLevel",
            name.c_str());
   snprintf(meta_display_name, sizeof(meta_display_name), "Tank %s level",
            name.c_str());
-  snprintf(meta_description, sizeof(meta_description),
-           "Calculated tank %s level", name.c_str());
+  snprintf(meta_description, sizeof(meta_description), "Tank %s level",
+           name.c_str());
   auto tank_level_sk_output = new SKOutputFloat(
       sk_path, config_path,
       new SKMetadata("ratio", meta_display_name, meta_description));
 
-  snprintf(config_path, sizeof(config_path),
-           "/analog/%s/fuelTank/currentVolume/linear", name.c_str());
+  snprintf(config_path, sizeof(config_path), "/Tank %s/Total Volume",
+           name.c_str());
   auto tank_volume = new Linear(kTankDefaultSize, 0, config_path);
 
-  snprintf(config_path, sizeof(config_path),
-           "/analog/%s/fuelTank/currentVolume/skPath", name.c_str());
+  snprintf(config_path, sizeof(config_path), "/Tank %s/Current Volume SK Path",
+           name.c_str());
   snprintf(sk_path, sizeof(sk_path), "tanks.fuel.%s.currentVolume",
            name.c_str());
   snprintf(meta_display_name, sizeof(meta_display_name), "Tank %s volume",
@@ -92,9 +98,9 @@ FloatProducer* ConnectTankSender(Adafruit_ADS1115* ads1115, int channel,
       sk_path, config_path,
       new SKMetadata("m3", meta_display_name, meta_description));
 
-  input_voltage->connect_to(input_voltage_sk_output);
+  sender_resistance->connect_to(sender_resistance_sk_output);
 
-  input_voltage->connect_to(tank_level)->connect_to(tank_level_sk_output);
+  sender_resistance->connect_to(tank_level)->connect_to(tank_level_sk_output);
 
   tank_level->connect_to(tank_volume)->connect_to(tank_volume_sk_output);
 
