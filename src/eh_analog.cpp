@@ -12,15 +12,15 @@ class FuelLevelInterpolator : public CurveInterpolator {
       : CurveInterpolator(NULL, config_path) {
     // If saved configuration hasn't been loaded, use the default values
     if (samples.empty()) {
-      // Populate a lookup table tp translate the ohm values returned by
-      // our temperature sender to degrees Kelvin
+      // Populate a lookup table to translate the ohm values returned by
+      // the tank sender to fill level
       clear_samples();
+
+      // This curve corresponds to a European standard (0-180 ohms) tank sender
       // addSample(CurveInterpolator::Sample(knownOhmValue, knownFuelLevel));
-      add_sample(CurveInterpolator::Sample(0, 1));
-      add_sample(CurveInterpolator::Sample(0.46, 1));
-      add_sample(CurveInterpolator::Sample(1.30, 0));
-      add_sample(CurveInterpolator::Sample(3.30, 0));
-      add_sample(CurveInterpolator::Sample(36., 0));
+      add_sample(CurveInterpolator::Sample(0, 0));
+      add_sample(CurveInterpolator::Sample(180., 1));
+      add_sample(CurveInterpolator::Sample(300., 1));
     }
   }
 };
