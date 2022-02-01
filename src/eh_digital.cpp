@@ -16,13 +16,13 @@ FloatProducer* ConnectTachoSender(int pin, String name) {
   char config_path[80];
   char sk_path[80];
 
-  snprintf(config_path, sizeof(config_path), "/digital/%s/counter/device", name.c_str());
+  snprintf(config_path, sizeof(config_path), "", name.c_str());
   auto tacho_input = new DigitalInputCounter(pin, INPUT, RISING, 500, config_path);
 
-  snprintf(config_path, sizeof(config_path), "/digital/%s/counter/frequency/multiplier", name.c_str());
+  snprintf(config_path, sizeof(config_path), "/Tacho %s/Revolution Multiplier", name.c_str());
   auto tacho_frequency = new Frequency(kDefaultFrequencyScale, config_path);
 
-  snprintf(config_path, sizeof(config_path), "/digital/%s/counter/frequency/skPath", name.c_str());
+  snprintf(config_path, sizeof(config_path), "/Tacho %s/Revolutions SK Path", name.c_str());
   snprintf(sk_path, sizeof(sk_path), "propulsion.%s.revolutions", name.c_str());
   auto tacho_frequency_sk_output = new SKOutputFloat(sk_path, config_path);
 
@@ -43,7 +43,7 @@ BoolProducer* ConnectAlarmSender(int pin, String name) {
 
   auto* alarm_input = new DigitalInputChange(pin, INPUT, CHANGE);
 
-  snprintf(config_path, sizeof(config_path), "/digital/%s/alarm/skPath", name.c_str());
+  snprintf(config_path, sizeof(config_path), "/Alarm %s/SK Path", name.c_str());
   snprintf(sk_path, sizeof(sk_path), "alarm.%s", name.c_str());
   auto alarm_sk_output = new SKOutputBool(sk_path, config_path);
 
