@@ -1,9 +1,8 @@
-# SensESP Project Template
+# SH-ESP32 Engine Hat Example Software
 
-This repository provides a template for [SensESP](https://github.com/SignalK/SensESP/) projects.
-Fork, clone or download the repository and try building and uploading the project to an ESP32 device.
-You should immediately see output on the serial monitor!
+This repository provides example software for the SH-ESP32 Engine Hat Add-on board.
 
-To customize the template for your own purposes, edit the `src/main.cpp` and `platformio.ini` files.
+To get started with the example software, follow the generic SensESP [Getting Started](https://signalk.org/SensESP/pages/getting_started/) instructions but use this repository instead of the SensESP Project Template.
 
-Comprehensive documentation for SensESP, including how to get started with your own project, is available at the [SensESP documentation site](https://signalk.org/SensESP/).
+To customize the software for your own purposes, edit the `src/main.cpp` file.
+Usually it is sufficient to set the configure the inputs around line 132.
