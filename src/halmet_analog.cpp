@@ -1,4 +1,4 @@
-#include "eh_analog.h"
+#include "halmet_analog.h"
 
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/signalk/signalk_output.h"
@@ -9,7 +9,7 @@
 // ADS1115 input hardware scale factor (input voltage vs voltage at ADS1115)
 const float kAnalogInputScale = 29. / 2.048;
 
-// Engine Hat constant measurement current (A)
+// HALMET constant measurement current (A)
 const float kMeasurementCurrent = 0.01;
 
 // Default fuel tank size, in m3

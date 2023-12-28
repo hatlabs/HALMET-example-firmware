@@ -12,9 +12,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#include "eh_analog.h"
-#include "eh_digital.h"
-#include "eh_display.h"
+#include "halmet_analog.h"
+#include "halmet_digital.h"
+#include "halmet_display.h"
 #include "sensesp/sensors/analog_input.h"
 #include "sensesp/sensors/digital_input.h"
 #include "sensesp/sensors/sensor.h"

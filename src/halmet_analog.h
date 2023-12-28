@@ -1,5 +1,5 @@
-#ifndef __SRC_EH_ANALOG_H__
-#define __SRC_EH_ANALOG_H__
+#ifndef __SRC_HALMET_ANALOG_H__
+#define __SRC_HALMET_ANALOG_H__
 
 #include <Adafruit_ADS1X15.h>
 

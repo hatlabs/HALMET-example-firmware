@@ -1,5 +1,5 @@
-#ifndef __SRC_EH_DIGITAL_H__
-#define __SRC_EH_DIGITAL_H__
+#ifndef __SRC_HALMET_DIGITAL_H__
+#define __SRC_HALMET_DIGITAL_H__
 
 #include "sensesp/sensors/sensor.h"
 

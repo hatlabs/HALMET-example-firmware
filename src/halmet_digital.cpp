@@ -1,4 +1,4 @@
-#include "eh_digital.h"
+#include "halmet_digital.h"
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/sensors/digital_input.h"
 #include "sensesp/signalk/signalk_output.h"

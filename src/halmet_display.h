@@ -1,5 +1,5 @@
-#ifndef __SRC_EH_DISPLAY_H__
-#define __SRC_EH_DISPLAY_H__
+#ifndef __SRC_HALMET_DISPLAY_H__
+#define __SRC_HALMET_DISPLAY_H__
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
