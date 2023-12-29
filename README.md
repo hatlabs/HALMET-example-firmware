@@ -1,8 +1,10 @@
-# SH-ESP32 Engine Hat Example Software
+# HALMET Example Firmware
 
-This repository provides example software for the [SH-ESP32 Engine Top Hat add-on board](https://hatlabs.fi/product/sh-esp32-engine-top-hat-kit/).
+This repository provides example firmware for [HALMET: Hat Labs Marine Engine & Tank interface](https://shop.hatlabs.fi/products/halmet).
 
-To get started with the example software, follow the generic SensESP [Getting Started](https://signalk.org/SensESP/pages/getting_started/) instructions but use this repository instead of the SensESP Project Template.
+To get started with the example firmware, follow the generic SensESP [Getting Started](https://signalk.org/SensESP/pages/getting_started/) instructions but use this repository instead of the SensESP Project Template.
+
+By default, the example firmware is configured to read the engine RPM from input D1 and the fuel level from input A1. D2 is configured as a low oil pressure alarm input.
 
 To customize the software for your own purposes, edit the `src/main.cpp` file.
-Usually it is sufficient to set the configure the inputs around line 132.
+Parts intended to be customized are marked with `EDIT:` comments.
