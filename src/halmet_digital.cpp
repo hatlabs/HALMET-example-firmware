@@ -1,4 +1,5 @@
 #include "halmet_digital.h"
+#include "rate_limiter.h"
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/sensors/digital_input.h"
 #include "sensesp/signalk/signalk_output.h"
@@ -41,13 +42,14 @@ BoolProducer* ConnectAlarmSender(int pin, String name) {
   char config_path[80];
   char sk_path[80];
 
-  auto* alarm_input = new DigitalInputChange(pin, INPUT, CHANGE);
+  auto* alarm_input = new DigitalInputState(pin, INPUT, 100);
 
   snprintf(config_path, sizeof(config_path), "/Alarm %s/SK Path", name.c_str());
   snprintf(sk_path, sizeof(sk_path), "alarm.%s", name.c_str());
   auto alarm_sk_output = new SKOutputBool(sk_path, config_path);
 
   alarm_input
+    ->connect_to(new RateLimiter<bool>(1000))
     ->connect_to(alarm_sk_output);
 
   return alarm_input;
