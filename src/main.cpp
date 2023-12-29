@@ -24,29 +24,31 @@
 
 using namespace sensesp;
 
-// I2C pins on SH-ESP32
-const int kSDAPin = 16;
-const int kSCLPin = 17;
+// I2C pins on HALMET
+const int kSDAPin = 21;
+const int kSCLPin = 22;
 
 // ADS1115 I2C address
 const int kADS1115Address = 0x4b;
 
-// CAN bus (NMEA 2000) pins on SH-ESP32
-const int kCANRxPin = GPIO_NUM_34;
-const int kCANTxPin = GPIO_NUM_32;
+// CAN bus (NMEA 2000) pins on HALMET
+const gpio_num_t kCANRxPin = GPIO_NUM_18;
+const gpio_num_t kCANTxPin = GPIO_NUM_19;
 
-// Engine hat digital input pins
-const int kDigitalInputPin1 = GPIO_NUM_15;
-const int kDigitalInputPin2 = GPIO_NUM_13;
-const int kDigitalInputPin3 = GPIO_NUM_14;
-const int kDigitalInputPin4 = GPIO_NUM_12;
+// HALMET digital input pins
+const int kDigitalInputPin1 = GPIO_NUM_23;
+const int kDigitalInputPin2 = GPIO_NUM_25;
+const int kDigitalInputPin3 = GPIO_NUM_27;
+const int kDigitalInputPin4 = GPIO_NUM_26;
 
-// Test output pin configuration
+// Test output pin configuration. If ENABLE_TEST_OUTPUT_PIN is defined,
+// GPIO 33 will output a pulse wave at 380 Hz with a 50% duty cycle.
+// If this output and GND are connected to one of the digital inputs, it can
+// be used to test that the frequency counter functionality is working.
 #define ENABLE_TEST_OUTPUT_PIN
 #ifdef ENABLE_TEST_OUTPUT_PIN
-const int kTestOutputPin = GPIO_NUM_18;
-// repetition interval in ms; corresponds to 1000/(2*5)=100 Hz
-const int kTestOutputInterval = 5;
+const int kTestOutputPin = GPIO_NUM_33;
+const int kTestOutputFrequency = 380;
 #endif
 
 TwoWire* i2c;
@@ -56,39 +58,6 @@ reactesp::ReactESP app;
 
 // Store alarm states in an array for local display output
 bool alarm_states[4] = {false, false, false, false};
-
-// Convenience function to print the addresses found on the I2C bus
-void ScanI2C(TwoWire* i2c) {
-  uint8_t error, address;
-
-  Serial.println("Scanning...");
-
-  for (address = 1; address < 127; address++) {
-    i2c->beginTransmission(address);
-    error = i2c->endTransmission();
-
-    if (error == 0) {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.println("");
-    } else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.println(address, HEX);
-    }
-  }
-  Serial.println("done");
-}
-
-#ifdef ENABLE_TEST_OUTPUT_PIN
-void ToggleTestOutputPin(void * parameter) {
-  while (true) {
-    digitalWrite(kTestOutputPin, !digitalRead(kTestOutputPin));
-    delay(kTestOutputInterval);
-  }
-}
-#endif
 
 // The setup function performs one-time application initialization.
 void setup() {
@@ -100,8 +69,6 @@ void setup() {
   i2c = new TwoWire(0);
   i2c->begin(kSDAPin, kSCLPin);
 
-  ScanI2C(i2c);
-
   // Initialize ADS1115
   auto ads1115 = new Adafruit_ADS1115();
   ads1115->setGain(GAIN_ONE);
@@ -110,14 +77,21 @@ void setup() {
 
 #ifdef ENABLE_TEST_OUTPUT_PIN
   pinMode(kTestOutputPin, OUTPUT);
-  xTaskCreate(ToggleTestOutputPin, "toggler", 2048, NULL, 1, NULL);
+  // Set the LEDC peripheral to a 13-bit resolution
+  ledcSetup(0, kTestOutputFrequency, 13);
+  // Attach the channel to the GPIO pin to be controlled
+  ledcAttachPin(kTestOutputPin, 0);
+  // Set the duty cycle to 50%
+  // Duty cycle value is calculated based on the resolution
+  // For 13-bit resolution, max value is 8191, so 50% is 4096
+  ledcWrite(0, 4096);
 #endif
 
   // Construct the global SensESPApp() object
   SensESPAppBuilder builder;
   sensesp_app = (&builder)
                     // Set a custom hostname for the app.
-                    ->set_hostname("engine-hat")
+                    ->set_hostname("halmet")
                     // Optionally, hard-code the WiFi and Signal K server
                     // settings. This is normally not needed.
                     //->set_wifi("My WiFi SSID", "my_wifi_password")
@@ -130,25 +104,25 @@ void setup() {
 
 
   // Connect the tank senders
-  auto tank_a_volume = ConnectTankSender(ads1115, 0, "A");
-  // auto tank_b_volume = ConnectTankSender(ads1115, 1, "B");
-  // auto tank_c_volume = ConnectTankSender(ads1115, 2, "C");
-  // auto tank_d_volume = ConnectTankSender(ads1115, 3, "D");
+  auto tank_a1_volume = ConnectTankSender(ads1115, 0, "A1");
+  // auto tank_a2_volume = ConnectTankSender(ads1115, 1, "B");
+  // auto tank_a3_volume = ConnectTankSender(ads1115, 2, "C");
+  // auto tank_a4_volume = ConnectTankSender(ads1115, 3, "D");
 
   // Connect the tacho senders
-  auto tacho_1_frequency = ConnectTachoSender(kDigitalInputPin1, "1");
+  auto tacho_d1_frequency = ConnectTachoSender(kDigitalInputPin1, "D1");
 
   // Connect the alarm inputs
-  auto alarm_2_input = ConnectAlarmSender(kDigitalInputPin2, "2");
-  // auto alarm_3_input = ConnectAlarmSender(kDigitalInputPin3, "3");
-  // auto alarm_4_input = ConnectAlarmSender(kDigitalInputPin4, "4");
+  auto alarm_d2_input = ConnectAlarmSender(kDigitalInputPin2, "D2");
+  // auto alarm_d3_input = ConnectAlarmSender(kDigitalInputPin3, "3");
+  // auto alarm_d4_input = ConnectAlarmSender(kDigitalInputPin4, "4");
 
   // Update the alarm states based on the input value changes
-  alarm_2_input->connect_to(
+  alarm_d2_input->connect_to(
       new LambdaConsumer<bool>([](bool value) { alarm_states[1] = value; }));
-  // alarm_3_input->connect_to(
+  // alarm_d3_input->connect_to(
   //     new LambdaConsumer<bool>([](bool value) { alarm_states[2] = value; }));
-  // alarm_4_input->connect_to(
+  // alarm_d4_input->connect_to(
   //     new LambdaConsumer<bool>([](bool value) { alarm_states[3] = value; }));
 
 
@@ -159,14 +133,14 @@ void setup() {
       PrintValue(display, 1, "IP:", WiFi.localIP().toString());
     });
 
-    // Add display updaters for temperature values
-    tank_a_volume->connect_to(new LambdaConsumer<float>(
-        [](float value) { PrintValue(display, 2, "Tank A", 100 * value); }));
+    // Add display updaters for tank and RPM values
+    tank_a1_volume->connect_to(new LambdaConsumer<float>(
+        [](float value) { PrintValue(display, 2, "Tank A1", 100 * value); }));
 
-    tacho_1_frequency->connect_to(new LambdaConsumer<float>(
-        [](float value) { PrintValue(display, 3, "RPM 1", 60 * value); }));
+    tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
+        [](float value) { PrintValue(display, 3, "RPM D1", 60 * value); }));
 
-    // Create a "christmas tree" display for the alarms
+    // Create a poor man's "christmas tree" display for the alarms
     app.onRepeat(1000, []() {
       char state_string[5] = {};
       for (int i = 0; i < 4; i++) {
