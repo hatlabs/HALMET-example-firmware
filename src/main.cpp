@@ -72,7 +72,8 @@ const int kTestOutputFrequency = 380;
 
 #ifdef ENABLE_NMEA2000_OUTPUT
 tNMEA2000* nmea2000;
-N2kEngineParameterRapidSender* engine_sender;
+N2kEngineParameterRapidSender* engine_d1_sender;
+N2kFluidLevelSender* tank_a1_sender;
 #endif
 
 // The setup function performs one-time application initialization.
@@ -183,9 +184,14 @@ void setup() {
 
 #ifdef ENABLE_NMEA2000_OUTPUT
   // Connect outputs to the N2k senders
-  engine_sender = new N2kEngineParameterRapidSender(
-      "NMEA 2000 Engine 1", 0, nmea2000);  // Engine 1, instance 0
-  tacho_d1_frequency->connect_to(&(engine_sender->engine_speed_consumer_));
+  engine_d1_sender = new N2kEngineParameterRapidSender(
+      "/NMEA 2000/Engine 1", 0, nmea2000);  // Engine 1, instance 0
+  tacho_d1_frequency->connect_to(&(engine_d1_sender->engine_speed_consumer_));
+
+  // Tank 1, instance 0. Capacity 200 liters.
+  tank_a1_sender =
+      new N2kFluidLevelSender("/NMEA 2000/Tank 1", 0, N2kft_Fuel, 200, nmea2000);
+  tank_a1_volume->connect_to(&(tank_a1_sender->tank_level_consumer_));
 #endif
 
   // Connect the outputs to the display
