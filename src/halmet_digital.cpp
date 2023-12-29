@@ -7,9 +7,9 @@
 using namespace sensesp;
 
 
-// Default RPM count scale factor (corresponds to Yanmar 3GM30F RPM sender
-// output)
-const float kDefaultFrequencyScale = 1. / 97;
+// Default RPM count scale factor, corresponds to 100 pulses per revolution.
+// This is rarely, if ever correct.
+const float kDefaultFrequencyScale = 1/100.;
 
 
 FloatProducer* ConnectTachoSender(int pin, String name) {
