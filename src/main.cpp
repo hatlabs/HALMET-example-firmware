@@ -30,6 +30,7 @@
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/signalk/signalk_output.h"
 #include "sensesp/system/lambda_consumer.h"
+#include "sensesp/transforms/lambda_transform.h"
 #include "sensesp_app_builder.h"
 
 using namespace sensesp;
@@ -149,6 +150,9 @@ void setup() {
   // Initialize the OLED display
   bool display_present = InitializeSSD1306(&app, sensesp_app, &display, i2c);
 
+  ///////////////////////////////////////////////////////////////////
+  // Analog inputs
+
   // Connect the tank senders.
   // EDIT: To enable more tanks, uncomment the lines below.
   auto tank_a1_volume = ConnectTankSender(ads1115, 0, "fuel");
@@ -156,44 +160,7 @@ void setup() {
   // auto tank_a3_volume = ConnectTankSender(ads1115, 2, "A3");
   // auto tank_a4_volume = ConnectTankSender(ads1115, 3, "A4");
 
-  // Connect the tacho senders. Engine name is "main".
-  // EDIT: More tacho inputs can be defined by duplicating the line below.
-  auto tacho_d1_frequency = ConnectTachoSender(kDigitalInputPin1, "main");
-
-  // Connect the alarm inputs.
-  // EDIT: More alarm inputs can be defined by duplicating the lines below.
-  // Make sure to not define a pin for both a tacho and an alarm.
-  auto alarm_d2_input = ConnectAlarmSender(kDigitalInputPin2, "D2");
-  // auto alarm_d3_input = ConnectAlarmSender(kDigitalInputPin3, "3");
-  // auto alarm_d4_input = ConnectAlarmSender(kDigitalInputPin4, "4");
-
-  // Update the alarm states based on the input value changes.
-  // EDIT: If you added more alarm inputs, uncomment the respective lines below.
-  alarm_d2_input->connect_to(
-      new LambdaConsumer<bool>([](bool value) { alarm_states[1] = value; }));
-  // alarm_d3_input->connect_to(
-  //     new LambdaConsumer<bool>([](bool value) { alarm_states[2] = value; }));
-  // alarm_d4_input->connect_to(
-  //     new LambdaConsumer<bool>([](bool value) { alarm_states[3] = value; }));
-
 #ifdef ENABLE_NMEA2000_OUTPUT
-  // Connect outputs to the N2k senders.
-  // EDIT: Make sure this matches your tacho configuration above.
-  //       Duplicate the lines below to connect more tachos, but be sure to
-  //       use different engine instances.
-  N2kEngineParameterRapidSender* engine_d1_sender =
-      new N2kEngineParameterRapidSender("/NMEA 2000/Engine 1 Rapid Update", 0,
-                                        nmea2000);  // Engine 1, instance 0
-  tacho_d1_frequency->connect_to(&(engine_d1_sender->engine_speed_consumer_));
-
-  // EDIT: This example connects the D2 alarm input to the low oil pressure
-  // warning. Modify according to your needs.
-  N2kEngineParameterDynamicSender* engine_d1_dynamic_sender =
-      new N2kEngineParameterDynamicSender("/NMEA 2000/Engine 1 Dynamic", 0,
-                                          nmea2000);
-  alarm_d2_input->connect_to(
-      &(engine_d1_dynamic_sender->low_oil_pressure_consumer_));
-
   // Tank 1, instance 0. Capacity 200 liters.
   // EDIT: Make sure this matches your tank configuration above.
   N2kFluidLevelSender* tank_a1_sender = new N2kFluidLevelSender(
@@ -201,22 +168,80 @@ void setup() {
   tank_a1_volume->connect_to(&(tank_a1_sender->tank_level_consumer_));
 #endif  // ENABLE_NMEA2000_OUTPUT
 
+  if (display_present) {
+    // EDIT: Duplicate the lines below to make the display show all your tanks.
+    tank_a1_volume->connect_to(new LambdaConsumer<float>(
+        [](float value) { PrintValue(display, 2, "Tank A1", 100 * value); }));
+  }
+
+  ///////////////////////////////////////////////////////////////////
+  // Digital alarm inputs
+
+  // EDIT: More alarm inputs can be defined by duplicating the lines below.
+  // Make sure to not define a pin for both a tacho and an alarm.
+  auto alarm_d2_input = ConnectAlarmSender(kDigitalInputPin2, "D2");
+  auto alarm_d3_input = ConnectAlarmSender(kDigitalInputPin3, "D3");
+  // auto alarm_d4_input = ConnectAlarmSender(kDigitalInputPin4, "D4");
+
+  // Update the alarm states based on the input value changes.
+  // EDIT: If you added more alarm inputs, uncomment the respective lines below.
+  alarm_d2_input->connect_to(
+      new LambdaConsumer<bool>([](bool value) { alarm_states[1] = value; }));
+  // In this example, alarm_d3_input is active low, so invert the value.
+  auto alarm_d3_inverted = alarm_d3_input->connect_to(
+      new LambdaTransform<bool, bool>([](bool value) { return !value; }));
+  alarm_d3_inverted->connect_to(
+      new LambdaConsumer<bool>([](bool value) { alarm_states[2] = value; }));
+  // alarm_d4_input->connect_to(
+  //     new LambdaConsumer<bool>([](bool value) { alarm_states[3] = value; }));
+
+#ifdef ENABLE_NMEA2000_OUTPUT
+  // EDIT: This example connects the D2 alarm input to the low oil pressure
+  // warning. Modify according to your needs.
+  N2kEngineParameterDynamicSender* engine_dynamic_sender =
+      new N2kEngineParameterDynamicSender("/NMEA 2000/Engine 1 Dynamic", 0,
+                                          nmea2000);
+  alarm_d2_input->connect_to(
+      &(engine_dynamic_sender->low_oil_pressure_consumer_));
+  // This is just an example -- normally temperature alarms would not be
+  // active-low (inverted).
+  alarm_d3_inverted->connect_to(
+      &(engine_dynamic_sender->over_temperature_consumer_));
+#endif  // ENABLE_NMEA2000_OUTPUT
+
+  // FIXME: Transmit the alarms over SK as well.
+
+  ///////////////////////////////////////////////////////////////////
+  // Digital tacho inputs
+
+  // Connect the tacho senders. Engine name is "main".
+  // EDIT: More tacho inputs can be defined by duplicating the line below.
+  auto tacho_d1_frequency = ConnectTachoSender(kDigitalInputPin1, "main");
+
+#ifdef ENABLE_NMEA2000_OUTPUT
+  // Connect outputs to the N2k senders.
+  // EDIT: Make sure this matches your tacho configuration above.
+  //       Duplicate the lines below to connect more tachos, but be sure to
+  //       use different engine instances.
+  N2kEngineParameterRapidSender* engine_rapid_sender =
+      new N2kEngineParameterRapidSender("/NMEA 2000/Engine 1 Rapid Update", 0,
+                                        nmea2000);  // Engine 1, instance 0
+  tacho_d1_frequency->connect_to(&(engine_rapid_sender->engine_speed_consumer_));
+#endif  // ENABLE_NMEA2000_OUTPUT
+
+  if (display_present) {
+        tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
+        [](float value) { PrintValue(display, 3, "RPM D1", 60 * value); }));
+  }
+
+  ///////////////////////////////////////////////////////////////////
+  // Display setup
+
   // Connect the outputs to the display
   if (display_present) {
     app.onRepeat(1000, []() {
       PrintValue(display, 1, "IP:", WiFi.localIP().toString());
     });
-
-    // Add display updaters for tank and RPM values
-
-    // EDIT: Edit the lines below to make the display show all your tanks and
-    //       tachos.
-
-    tank_a1_volume->connect_to(new LambdaConsumer<float>(
-        [](float value) { PrintValue(display, 2, "Tank A1", 100 * value); }));
-
-    tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
-        [](float value) { PrintValue(display, 3, "RPM D1", 60 * value); }));
 
     // Create a poor man's "christmas tree" display for the alarms
     app.onRepeat(1000, []() {
@@ -227,6 +252,9 @@ void setup() {
       PrintValue(display, 4, "Alarm", state_string);
     });
   }
+
+  ///////////////////////////////////////////////////////////////////
+  // Start the application
 
   // Start networking, SK server connections and other SensESP internals
   sensesp_app->start();
