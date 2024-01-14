@@ -11,6 +11,10 @@
 // Comment out this line to disable NMEA 2000 output.
 #define ENABLE_NMEA2000_OUTPUT
 
+// Comment out this line to disable Signal K support. At the moment, disabling
+// Signal K support also disables all WiFi functionality.
+#define ENABLE_SIGNALK
+
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -19,21 +23,42 @@
 #include <NMEA2000_esp32.h>
 #endif
 
+#include "n2k_senders.h"
+#include "sensesp/net/discovery.h"
+#include "sensesp/signalk/signalk_output.h"
+#include "sensesp/sensors/analog_input.h"
+#include "sensesp/sensors/digital_input.h"
+#include "sensesp/sensors/sensor.h"
+#include "sensesp/system/lambda_consumer.h"
+#include "sensesp/system/system_status_led.h"
+#include "sensesp/transforms/lambda_transform.h"
+
+#ifdef ENABLE_SIGNALK
+#include "sensesp_app_builder.h"
+#define BUILDER_CLASS SensESPAppBuilder
+#else
+#include "sensesp_minimal_app_builder.h"
+#endif
+
+#include "sensesp/net/http_server.h"
+#include "sensesp/net/networking.h"
+
 #include "halmet_analog.h"
 #include "halmet_const.h"
 #include "halmet_digital.h"
 #include "halmet_display.h"
 #include "halmet_serial.h"
-#include "n2k_senders.h"
-#include "sensesp/sensors/analog_input.h"
-#include "sensesp/sensors/digital_input.h"
-#include "sensesp/sensors/sensor.h"
-#include "sensesp/signalk/signalk_output.h"
-#include "sensesp/system/lambda_consumer.h"
-#include "sensesp/transforms/lambda_transform.h"
-#include "sensesp_app_builder.h"
 
 using namespace sensesp;
+
+#ifndef ENABLE_SIGNALK
+#define BUILDER_CLASS SensESPMinimalAppBuilder
+SensESPMinimalApp *sensesp_app;
+Networking *networking;
+MDNSDiscovery *mdns_discovery;
+HTTPServer *http_server;
+SystemStatusLed* system_status_led;
+#endif
 
 /////////////////////////////////////////////////////////////////////
 // Declare some global variables required for the firmware operation.
@@ -93,7 +118,8 @@ void setup() {
 #endif
 
 #ifdef ENABLE_NMEA2000_OUTPUT
-  // Initialize NMEA 2000
+  /////////////////////////////////////////////////////////////////////
+  // Initialize NMEA 2000 functionality
 
   nmea2000 = new tNMEA2000_esp32(kCANTxPin, kCANRxPin);
 
@@ -136,8 +162,11 @@ void setup() {
   app.onRepeat(1, []() { nmea2000->ParseMessages(); });
 #endif  // ENABLE_NMEA2000_OUTPUT
 
+  /////////////////////////////////////////////////////////////////////
+  // Initialize the application framework
+
   // Construct the global SensESPApp() object
-  SensESPAppBuilder builder;
+  BUILDER_CLASS builder;
   sensesp_app = (&builder)
                     // EDIT: Set a custom hostname for the app.
                     ->set_hostname("halmet")
@@ -146,6 +175,16 @@ void setup() {
                     //->set_wifi("My WiFi SSID", "my_wifi_password")
                     //->set_sk_server("192.168.10.3", 80)
                     ->get_app();
+
+#ifndef ENABLE_SIGNALK
+  // Initialize components that would normally be present in SensESPApp
+  networking = new Networking("/System/WiFi Settings", "", "",
+                              SensESPBaseApp::get_hostname(),
+                              "thisisfine");
+  mdns_discovery = new MDNSDiscovery();
+  http_server = new HTTPServer();
+  system_status_led = new SystemStatusLed(LED_BUILTIN);
+#endif
 
   // Initialize the OLED display
   bool display_present = InitializeSSD1306(&app, sensesp_app, &display, i2c);
@@ -239,9 +278,11 @@ void setup() {
 
   // Connect the outputs to the display
   if (display_present) {
+#ifdef ENABLE_SIGNALK
     app.onRepeat(1000, []() {
       PrintValue(display, 1, "IP:", WiFi.localIP().toString());
     });
+#endif
 
     // Create a poor man's "christmas tree" display for the alarms
     app.onRepeat(1000, []() {

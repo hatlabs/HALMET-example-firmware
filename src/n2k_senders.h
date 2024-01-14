@@ -8,7 +8,6 @@
 #include "sensesp/system/configurable.h"
 #include "sensesp/system/lambda_consumer.h"
 #include "sensesp/system/startable.h"
-#include "sensesp_app.h"
 
 namespace sensesp {
 
