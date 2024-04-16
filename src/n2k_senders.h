@@ -167,7 +167,6 @@ class N2kEngineParameterDynamicSender : public Startable, public Configurable {
   DEFINE_CONSUMER(fuel_pressure, double)
   DEFINE_CONSUMER(engine_load, int)
   DEFINE_CONSUMER(engine_torque, int)
-  DEFINE_CONSUMER(check_engine, bool)
   DEFINE_CONSUMER(over_temperature, bool)
   DEFINE_CONSUMER(low_oil_pressure, bool)
   DEFINE_CONSUMER(low_oil_level, bool)
@@ -194,40 +193,53 @@ class N2kEngineParameterDynamicSender : public Startable, public Configurable {
 #undef DEFINE_CONSUMER
 
  protected:
-  uint16_t get_engine_status_1() {
-    uint16_t status = 0;
-    status |= 0x0001 * check_engine_.get();
-    status |= 0x0002 * over_temperature_.get();
-    status |= 0x0004 * low_oil_pressure_.get();
-    status |= 0x0008 * low_oil_level_.get();
-    status |= 0x0010 * low_fuel_pressure_.get();
-    status |= 0x0020 * low_system_voltage_.get();
-    status |= 0x0040 * low_coolant_level_.get();
-    status |= 0x0080 * water_flow_.get();
-    status |= 0x0100 * water_in_fuel_.get();
-    status |= 0x0200 * charge_indicator_.get();
-    status |= 0x0400 * preheat_indicator_.get();
-    status |= 0x0800 * high_boost_pressure_.get();
-    status |= 0x1000 * rev_limit_exceeded_.get();
-    status |= 0x2000 * egr_system_.get();
-    status |= 0x4000 * throttle_position_sensor_.get();
-    status |= 0x8000 * emergency_stop_.get();
+tN2kEngineDiscreteStatus1 get_engine_status_1() {
+    tN2kEngineDiscreteStatus1 status = 0;
+    
+    // Get the status from each of the sensor checks
+    status.Bits.OverTemperature = over_temperature_.get();
+    status.Bits.LowOilPressure = low_oil_pressure_.get();
+    status.Bits.LowOilLevel = low_oil_level_.get();
+    status.Bits.LowFuelPressure = low_fuel_pressure_.get();
+    status.Bits.LowSystemVoltage = low_system_voltage_.get();
+    status.Bits.LowCoolantLevel = low_coolant_level_.get();
+    status.Bits.WaterFlow = water_flow_.get();
+    status.Bits.WaterInFuel = water_in_fuel_.get();
+    status.Bits.ChargeIndicator = charge_indicator_.get();
+    status.Bits.PreheatIndicator = preheat_indicator_.get();
+    status.Bits.HighBoostPressure = high_boost_pressure_.get();
+    status.Bits.RevLimitExceeded = rev_limit_exceeded_.get();
+    status.Bits.EGRSystem = egr_system_.get();
+    status.Bits.ThrottlePositionSensor = throttle_position_sensor_.get();
+    status.Bits.EngineEmergencyStopMode = emergency_stop_.get();
 
+    // Set CheckEngine if any other status bit is set
+    status.Bits.CheckEngine = status.Bits.OverTemperature || status.Bits.LowOilPressure ||
+                              status.Bits.LowOilLevel || status.Bits.LowFuelPressure ||
+                              status.Bits.LowSystemVoltage || status.Bits.LowCoolantLevel ||
+                              status.Bits.WaterFlow || status.Bits.WaterInFuel ||
+                              status.Bits.ChargeIndicator || status.Bits.PreheatIndicator ||
+                              status.Bits.HighBoostPressure || status.Bits.RevLimitExceeded ||
+                              status.Bits.EGRSystem || status.Bits.ThrottlePositionSensor ||
+                              status.Bits.EngineEmergencyStopMode;
+
+    return status;
+}
+
+
+  tN2kEngineDiscreteStatus2 get_engine_status_2() {
+    tN2kEngineDiscreteStatus2 status = 0;
+    status.Bits.WarningLevel1 = warning_level_1_.get();
+    status.Bits.WarningLevel2 = warning_level_2_.get();
+    status.Bits.LowOiPowerReduction =  power_reduction_.get();
+    status.Bits.MaintenanceNeeded = maintenance_needed_.get();
+    status.Bits.EngineCommError = engine_comm_error_.get();
+    status.Bits.SubOrSecondaryThrottle = sub_or_secondary_throttle_.get();
+    status.Bits.NeutralStartProtect = neutral_start_protect_.get();
+    status.Bits.EngineShuttingDown = engine_shutting_down_.get();
     return status;
   }
 
-  uint16_t get_engine_status_2() {
-    uint16_t status = 0;
-    status |= 0x0001 * warning_level_1_.get();
-    status |= 0x0002 * warning_level_2_.get();
-    status |= 0x0004 * power_reduction_.get();
-    status |= 0x0008 * maintenance_needed_.get();
-    status |= 0x0010 * engine_comm_error_.get();
-    status |= 0x0020 * sub_or_secondary_throttle_.get();
-    status |= 0x0040 * neutral_start_protect_.get();
-    status |= 0x0080 * engine_shutting_down_.get();
-    return status;
-  }
 
   unsigned int repeat_interval_;
   unsigned int expiry_;
