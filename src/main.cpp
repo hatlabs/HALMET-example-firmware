@@ -294,11 +294,6 @@ void setup() {
     });
   }
 
-  ///////////////////////////////////////////////////////////////////
-  // Start the application
-
-  // Start networking, SK server connections and other SensESP internals
-  sensesp_app->start();
 }
 
 void loop() { app.tick(); }

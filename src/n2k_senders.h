@@ -7,7 +7,6 @@
 #include "expiring_value.h"
 #include "sensesp/system/configurable.h"
 #include "sensesp/system/lambda_consumer.h"
-#include "sensesp/system/startable.h"
 
 namespace sensesp {
 
@@ -15,21 +14,19 @@ namespace sensesp {
  * @brief Transmit NMEA 2000 PGN 127488: Engine Parameters, Rapid Update
  *
  */
-class N2kEngineParameterRapidSender : public Startable, public Configurable {
+class N2kEngineParameterRapidSender : public Configurable {
  public:
   N2kEngineParameterRapidSender(String config_path, uint8_t engine_instance,
                                 tNMEA2000* nmea2000)
       : Configurable{config_path},
-        Startable(),
         engine_instance_{engine_instance},
         nmea2000_{nmea2000},
         repeat_interval_{100},  // In ms. Dictated by NMEA 2000 standard!
         expiry_{1000},          // In ms. When the inputs expire.
         engine_speed_{N2kDoubleNA, expiry_, N2kDoubleNA},
         engine_boost_pressure_{N2kDoubleNA, expiry_, N2kDoubleNA},
-        engine_tilt_trim_{N2kInt8NA, expiry_, N2kInt8NA} {}
+        engine_tilt_trim_{N2kInt8NA, expiry_, N2kInt8NA} {
 
-  virtual void start() override {
     ReactESP::app->onRepeat(repeat_interval_, [this]() {
       tN2kMsg N2kMsg;
       // At the moment, the PGN is sent regardless of whether all the values
@@ -92,12 +89,11 @@ class N2kEngineParameterRapidSender : public Startable, public Configurable {
  * @brief Transmit NMEA 2000 PGN 127489: Engine Parameters, Dynamic
  *
  */
-class N2kEngineParameterDynamicSender : public Startable, public Configurable {
+class N2kEngineParameterDynamicSender : public Configurable {
  public:
   N2kEngineParameterDynamicSender(String config_path, uint8_t engine_instance,
                                   tNMEA2000* nmea2000)
       : Configurable{config_path},
-        Startable(),
         engine_instance_{engine_instance},
         nmea2000_{nmea2000},
         repeat_interval_{500},  // In ms. Dictated by NMEA 2000 standard!
@@ -135,9 +131,8 @@ class N2kEngineParameterDynamicSender : public Startable, public Configurable {
         engine_comm_error_{false, expiry_, false},
         sub_or_secondary_throttle_{false, expiry_, false},
         neutral_start_protect_{false, expiry_, false},
-        engine_shutting_down_{false, expiry_, false} {}
+        engine_shutting_down_{false, expiry_, false} {
 
-  virtual void start() override {
     ReactESP::app->onRepeat(repeat_interval_, [this]() {
       tN2kMsg N2kMsg;
       SetN2kEngineDynamicParam(
@@ -195,7 +190,7 @@ class N2kEngineParameterDynamicSender : public Startable, public Configurable {
  protected:
 tN2kEngineDiscreteStatus1 get_engine_status_1() {
     tN2kEngineDiscreteStatus1 status = 0;
-    
+
     // Get the status from each of the sensor checks
     status.Bits.OverTemperature = over_temperature_.get();
     status.Bits.LowOilPressure = low_oil_pressure_.get();
@@ -289,7 +284,7 @@ tN2kEngineDiscreteStatus1 get_engine_status_1() {
  * @brief Transmit NMEA 2000 PGN 127505: Fluid Level
  *
  */
-class N2kFluidLevelSender : public Configurable, public Startable {
+class N2kFluidLevelSender : public Configurable {
  public:
   N2kFluidLevelSender(String config_path, uint8_t tank_instance,
                       tN2kFluidType tank_type, double tank_capacity,
@@ -303,9 +298,7 @@ class N2kFluidLevelSender : public Configurable, public Startable {
         expiry_{10000}           // In ms. When the inputs expire.
   {
     tank_level_ = ExpiringValue<double>(N2kDoubleNA, expiry_, N2kDoubleNA);
-  }
 
-  virtual void start() override {
     ReactESP::app->onRepeat(repeat_interval_, [this]() {
       tN2kMsg N2kMsg;
       // At the moment, the PGN is sent regardless of whether all the values
