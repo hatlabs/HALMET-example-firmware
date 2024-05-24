@@ -25,10 +25,10 @@
 
 #include "n2k_senders.h"
 #include "sensesp/net/discovery.h"
-#include "sensesp/signalk/signalk_output.h"
 #include "sensesp/sensors/analog_input.h"
 #include "sensesp/sensors/digital_input.h"
 #include "sensesp/sensors/sensor.h"
+#include "sensesp/signalk/signalk_output.h"
 #include "sensesp/system/lambda_consumer.h"
 #include "sensesp/system/system_status_led.h"
 #include "sensesp/transforms/lambda_transform.h"
@@ -40,23 +40,22 @@
 #include "sensesp_minimal_app_builder.h"
 #endif
 
-#include "sensesp/net/http_server.h"
-#include "sensesp/net/networking.h"
-
 #include "halmet_analog.h"
 #include "halmet_const.h"
 #include "halmet_digital.h"
 #include "halmet_display.h"
 #include "halmet_serial.h"
+#include "sensesp/net/http_server.h"
+#include "sensesp/net/networking.h"
 
 using namespace sensesp;
 
 #ifndef ENABLE_SIGNALK
 #define BUILDER_CLASS SensESPMinimalAppBuilder
-SensESPMinimalApp *sensesp_app;
-Networking *networking;
-MDNSDiscovery *mdns_discovery;
-HTTPServer *http_server;
+SensESPMinimalApp* sensesp_app;
+Networking* networking;
+MDNSDiscovery* mdns_discovery;
+HTTPServer* http_server;
 SystemStatusLed* system_status_led;
 #endif
 
@@ -74,6 +73,19 @@ reactesp::ReactESP app;
 
 // Store alarm states in an array for local display output
 bool alarm_states[4] = {false, false, false, false};
+
+// Set the ADS1115 GAIN to adjust the analog input voltage range.
+// On HALMET, this refers to the voltage range of the ADS1115 input
+// AFTER the 33.3/3.3 voltage divider.
+
+// GAIN_TWOTHIRDS: 2/3x gain +/- 6.144V  1 bit = 3mV      0.1875mV (default)
+// GAIN_ONE:       1x gain   +/- 4.096V  1 bit = 2mV      0.125mV
+// GAIN_TWO:       2x gain   +/- 2.048V  1 bit = 1mV      0.0625mV
+// GAIN_FOUR:      4x gain   +/- 1.024V  1 bit = 0.5mV    0.03125mV
+// GAIN_EIGHT:     8x gain   +/- 0.512V  1 bit = 0.25mV   0.015625mV
+// GAIN_SIXTEEN:   16x gain  +/- 0.256V  1 bit = 0.125mV  0.0078125mV
+
+const adsGain_t kADS1115Gain = GAIN_ONE;
 
 /////////////////////////////////////////////////////////////////////
 // Test output pin configuration. If ENABLE_TEST_OUTPUT_PIN is defined,
@@ -101,7 +113,8 @@ void setup() {
 
   // Initialize ADS1115
   auto ads1115 = new Adafruit_ADS1115();
-  ads1115->setGain(GAIN_ONE);
+
+  ads1115->setGain(kADS1115Gain);
   bool ads_initialized = ads1115->begin(kADS1115Address, i2c);
   debugD("ADS1115 initialized: %d", ads_initialized);
 
@@ -178,9 +191,7 @@ void setup() {
 
 #ifndef ENABLE_SIGNALK
   // Initialize components that would normally be present in SensESPApp
-  networking = new Networking("/System/WiFi Settings", "", "",
-                              SensESPBaseApp::get_hostname(),
-                              "thisisfine");
+  networking = new Networking("/System/WiFi Settings", "", "");
   mdns_discovery = new MDNSDiscovery();
   http_server = new HTTPServer();
   system_status_led = new SystemStatusLed(LED_BUILTIN);
@@ -192,9 +203,16 @@ void setup() {
   ///////////////////////////////////////////////////////////////////
   // Analog inputs
 
+#ifdef ENABLE_SIGNALK
+  bool enable_signalk_output = true;
+#else
+  bool enable_signalk_output = false;
+#endif
+
   // Connect the tank senders.
   // EDIT: To enable more tanks, uncomment the lines below.
-  auto tank_a1_volume = ConnectTankSender(ads1115, 0, "fuel");
+  auto tank_a1_volume =
+      ConnectTankSender(ads1115, 0, "fuel", enable_signalk_output);
   // auto tank_a2_volume = ConnectTankSender(ads1115, 1, "A2");
   // auto tank_a3_volume = ConnectTankSender(ads1115, 2, "A3");
   // auto tank_a4_volume = ConnectTankSender(ads1115, 3, "A4");
@@ -212,6 +230,20 @@ void setup() {
     tank_a1_volume->connect_to(new LambdaConsumer<float>(
         [](float value) { PrintValue(display, 2, "Tank A1", 100 * value); }));
   }
+
+  // Read the voltage level of analog input A2
+  auto a2_voltage = new ADS1115VoltageInput(ads1115, 1, "/Voltage A2");
+  a2_voltage->connect_to(new LambdaConsumer<float>(
+      [](float value) { debugD("Voltage A2: %f", value); }));
+
+  // If you want to output something else than the voltage value,
+  // you can insert a suitable transform here.
+
+#ifdef ENABLE_SIGNALK
+  a2_voltage->connect_to(
+      new SKOutputFloat("Analog Voltage A2", "sensors.a2.voltage",
+                        new SKMetadata("Analog Voltage A2", "V")));
+#endif
 
   ///////////////////////////////////////////////////////////////////
   // Digital alarm inputs
@@ -265,11 +297,12 @@ void setup() {
   N2kEngineParameterRapidSender* engine_rapid_sender =
       new N2kEngineParameterRapidSender("/NMEA 2000/Engine 1 Rapid Update", 0,
                                         nmea2000);  // Engine 1, instance 0
-  tacho_d1_frequency->connect_to(&(engine_rapid_sender->engine_speed_consumer_));
+  tacho_d1_frequency->connect_to(
+      &(engine_rapid_sender->engine_speed_consumer_));
 #endif  // ENABLE_NMEA2000_OUTPUT
 
   if (display_present) {
-        tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
+    tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
         [](float value) { PrintValue(display, 3, "RPM D1", 60 * value); }));
   }
 
@@ -293,7 +326,6 @@ void setup() {
       PrintValue(display, 4, "Alarm", state_string);
     });
   }
-
 }
 
 void loop() { app.tick(); }
