@@ -1,31 +1,35 @@
-#ifndef __SRC_HALMET_ANALOG_H__
-#define __SRC_HALMET_ANALOG_H__
+#ifndef HALMET_ANALOG_H_
+#define HALMET_ANALOG_H_
 
 #include <Adafruit_ADS1X15.h>
 
 #include "sensesp/sensors/sensor.h"
+#include "sensesp_base_app.h"
 
-using namespace sensesp;
+namespace halmet {
 
 // HALMET voltage divider scale factor
 const float kVoltageDividerScale = 33.3 / 3.3;
 
-FloatProducer* ConnectTankSender(Adafruit_ADS1115* ads1115, int channel,
-                                 String name, bool enable_signalk_output = true);
+sensesp::FloatProducer* ConnectTankSender(Adafruit_ADS1115* ads1115,
+                                          int channel, const String& name,
+                                          const String& sk_id, int sort_order,
+                                          bool enable_signalk_output = true);
 
-class ADS1115VoltageInput : public FloatSensor {
+class ADS1115VoltageInput : public sensesp::FloatSensor {
  public:
   ADS1115VoltageInput(Adafruit_ADS1115* ads1115, int channel,
-                      String config_path, unsigned int read_interval = 1000,
+                      const String& config_path,
+                      unsigned int read_interval = 1000,
                       float calibration_factor = 1.0)
-      : FloatSensor(config_path),
+      : sensesp::FloatSensor(config_path),
         ads1115_{ads1115},
         channel_{channel},
         read_interval_{read_interval},
         calibration_factor_{calibration_factor} {
-    load_configuration();
+    load();
 
-    repeat_reaction_ = set_repeat_reaction(read_interval_);
+    repeat_event_ = set_repeat_event(read_interval_);
   }
 
   void update() {
@@ -53,30 +57,27 @@ class ADS1115VoltageInput : public FloatSensor {
 
   bool set_configuration(const JsonObject& config) {
     String expected[] = {"read_interval"};
-    for (auto str : expected) {
-      if (!config.containsKey(str)) {
-        return false;
-      }
-      if (str == "calibration_factor" &&
-          config.containsKey("calibration_factor")) {
-        calibration_factor_ = config["calibration_factor"];
-      }
+    if (!config["read_interval"].is<int>()) {
+      return false;
+    }
+    if (config["calibration_factor"].is<float>()) {
+      calibration_factor_ = config["calibration_factor"];
     }
     read_interval_ = config["read_interval"];
     return true;
   }
 
  protected:
-  RepeatReaction* repeat_reaction_ = nullptr;
+  reactesp::RepeatEvent* repeat_event_ = nullptr;
 
-  RepeatReaction* set_repeat_reaction(unsigned int read_interval) {
-    if (repeat_reaction_ != nullptr) {
-      repeat_reaction_->remove();
+  reactesp::RepeatEvent* set_repeat_event(unsigned int read_interval) {
+    if (repeat_event_ != nullptr) {
+      repeat_event_->remove(sensesp::event_loop());
     }
 
-    repeat_reaction_ =
-        ReactESP::app->onRepeat(read_interval, [this]() { this->update(); });
-    return repeat_reaction_;
+    repeat_event_ = sensesp::event_loop()->onRepeat(
+        read_interval, [this]() { this->update(); });
+    return repeat_event_;
   }
 
  private:
@@ -85,5 +86,7 @@ class ADS1115VoltageInput : public FloatSensor {
   unsigned int read_interval_;
   float calibration_factor_;
 };
+
+}  // namespace halmet
 
 #endif
