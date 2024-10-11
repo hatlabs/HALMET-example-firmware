@@ -3,14 +3,14 @@
 
 #include <WiFi.h>
 
-using namespace sensesp;
+namespace halmet {
 
 // OLED display width and height, in pixels
 const int kScreenWidth = 128;
 const int kScreenHeight = 64;
 
-bool InitializeSSD1306(ReactESP* app, SensESPBaseApp* sensesp_app,
-                                    Adafruit_SSD1306** display, TwoWire* i2c) {
+bool InitializeSSD1306(sensesp::SensESPBaseApp* sensesp_app,
+                       Adafruit_SSD1306** display, TwoWire* i2c) {
   *display = new Adafruit_SSD1306(kScreenWidth, kScreenHeight, i2c, -1);
   bool init_successful = (*display)->begin(SSD1306_SWITCHCAPVCC, 0x3C);
   if (!init_successful) {
@@ -48,3 +48,5 @@ void PrintValue(Adafruit_SSD1306* display, int row, String title,
   display->printf("%s: %s", title.c_str(), value.c_str());
   display->display();
 }
+
+}  // namespace halmet

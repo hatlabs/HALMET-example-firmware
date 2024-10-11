@@ -8,13 +8,6 @@
 // Remove the parts that are not relevant to you, and add your own code
 // for external hardware libraries.
 
-// Comment out this line to disable NMEA 2000 output.
-#define ENABLE_NMEA2000_OUTPUT
-
-// Comment out this line to disable Signal K support. At the moment, disabling
-// Signal K support also disables all WiFi functionality.
-#define ENABLE_SIGNALK
-
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -25,13 +18,15 @@
 
 #include "n2k_senders.h"
 #include "sensesp/net/discovery.h"
-#include "sensesp/signalk/signalk_output.h"
 #include "sensesp/sensors/analog_input.h"
 #include "sensesp/sensors/digital_input.h"
 #include "sensesp/sensors/sensor.h"
+#include "sensesp/signalk/signalk_output.h"
 #include "sensesp/system/lambda_consumer.h"
 #include "sensesp/system/system_status_led.h"
 #include "sensesp/transforms/lambda_transform.h"
+#include "sensesp/transforms/linear.h"
+#include "sensesp/ui/config_item.h"
 
 #ifdef ENABLE_SIGNALK
 #include "sensesp_app_builder.h"
@@ -40,23 +35,23 @@
 #include "sensesp_minimal_app_builder.h"
 #endif
 
-#include "sensesp/net/http_server.h"
-#include "sensesp/net/networking.h"
-
 #include "halmet_analog.h"
 #include "halmet_const.h"
 #include "halmet_digital.h"
 #include "halmet_display.h"
 #include "halmet_serial.h"
+#include "sensesp/net/http_server.h"
+#include "sensesp/net/networking.h"
 
 using namespace sensesp;
+using namespace halmet;
 
 #ifndef ENABLE_SIGNALK
 #define BUILDER_CLASS SensESPMinimalAppBuilder
-SensESPMinimalApp *sensesp_app;
-Networking *networking;
-MDNSDiscovery *mdns_discovery;
-HTTPServer *http_server;
+SensESPMinimalApp* sensesp_app;
+Networking* networking;
+MDNSDiscovery* mdns_discovery;
+HTTPServer* http_server;
 SystemStatusLed* system_status_led;
 #endif
 
@@ -65,15 +60,28 @@ SystemStatusLed* system_status_led;
 
 #ifdef ENABLE_NMEA2000_OUTPUT
 tNMEA2000* nmea2000;
+elapsedMillis n2k_time_since_rx = 0;
+elapsedMillis n2k_time_since_tx = 0;
 #endif
 
 TwoWire* i2c;
 Adafruit_SSD1306* display;
 
-reactesp::ReactESP app;
-
 // Store alarm states in an array for local display output
 bool alarm_states[4] = {false, false, false, false};
+
+// Set the ADS1115 GAIN to adjust the analog input voltage range.
+// On HALMET, this refers to the voltage range of the ADS1115 input
+// AFTER the 33.3/3.3 voltage divider.
+
+// GAIN_TWOTHIRDS: 2/3x gain +/- 6.144V  1 bit = 3mV      0.1875mV (default)
+// GAIN_ONE:       1x gain   +/- 4.096V  1 bit = 2mV      0.125mV
+// GAIN_TWO:       2x gain   +/- 2.048V  1 bit = 1mV      0.0625mV
+// GAIN_FOUR:      4x gain   +/- 1.024V  1 bit = 0.5mV    0.03125mV
+// GAIN_EIGHT:     8x gain   +/- 0.512V  1 bit = 0.25mV   0.015625mV
+// GAIN_SIXTEEN:   16x gain  +/- 0.256V  1 bit = 0.125mV  0.0078125mV
+
+const adsGain_t kADS1115Gain = GAIN_ONE;
 
 /////////////////////////////////////////////////////////////////////
 // Test output pin configuration. If ENABLE_TEST_OUTPUT_PIN is defined,
@@ -91,9 +99,28 @@ const int kTestOutputFrequency = 380;
 /////////////////////////////////////////////////////////////////////
 // The setup function performs one-time application initialization.
 void setup() {
-#ifndef SERIAL_DEBUG_DISABLED
-  SetupSerialDebug(115200);
-#endif
+  SetupLogging(ESP_LOG_DEBUG);
+
+  // These calls can be used for fine-grained control over the logging level.
+  // esp_log_level_set("*", esp_log_level_t::ESP_LOG_DEBUG);
+
+  Serial.begin(115200);
+
+  /////////////////////////////////////////////////////////////////////
+  // Initialize the application framework
+
+  // Construct the global SensESPApp() object
+  BUILDER_CLASS builder;
+  sensesp_app = (&builder)
+                    // EDIT: Set a custom hostname for the app.
+                    ->set_hostname("halmet")
+                    // EDIT: Optionally, hard-code the WiFi and Signal K server
+                    // settings. This is normally not needed.
+                    //->set_wifi("My WiFi SSID", "my_wifi_password")
+                    //->set_sk_server("192.168.10.3", 80)
+                    // EDIT: Enable OTA updates with a password.
+                    //->enable_ota("my_ota_password")
+                    ->get_app();
 
   // initialize the I2C bus
   i2c = new TwoWire(0);
@@ -101,7 +128,8 @@ void setup() {
 
   // Initialize ADS1115
   auto ads1115 = new Adafruit_ADS1115();
-  ads1115->setGain(GAIN_ONE);
+
+  ads1115->setGain(kADS1115Gain);
   bool ads_initialized = ads1115->begin(kADS1115Address, i2c);
   debugD("ADS1115 initialized: %d", ads_initialized);
 
@@ -159,52 +187,51 @@ void setup() {
   nmea2000->Open();
 
   // No need to parse the messages at every single loop iteration; 1 ms will do
-  app.onRepeat(1, []() { nmea2000->ParseMessages(); });
+  event_loop()->onRepeat(1, []() { nmea2000->ParseMessages(); });
 #endif  // ENABLE_NMEA2000_OUTPUT
-
-  /////////////////////////////////////////////////////////////////////
-  // Initialize the application framework
-
-  // Construct the global SensESPApp() object
-  BUILDER_CLASS builder;
-  sensesp_app = (&builder)
-                    // EDIT: Set a custom hostname for the app.
-                    ->set_hostname("halmet")
-                    // EDIT: Optionally, hard-code the WiFi and Signal K server
-                    // settings. This is normally not needed.
-                    //->set_wifi("My WiFi SSID", "my_wifi_password")
-                    //->set_sk_server("192.168.10.3", 80)
-                    ->get_app();
 
 #ifndef ENABLE_SIGNALK
   // Initialize components that would normally be present in SensESPApp
-  networking = new Networking("/System/WiFi Settings", "", "",
-                              SensESPBaseApp::get_hostname(),
-                              "thisisfine");
+  networking = new Networking("/System/WiFi Settings", "", "");
+  ConfigItem(networking);
   mdns_discovery = new MDNSDiscovery();
   http_server = new HTTPServer();
   system_status_led = new SystemStatusLed(LED_BUILTIN);
 #endif
 
   // Initialize the OLED display
-  bool display_present = InitializeSSD1306(&app, sensesp_app, &display, i2c);
+  bool display_present = InitializeSSD1306(sensesp_app.get(), &display, i2c);
 
   ///////////////////////////////////////////////////////////////////
   // Analog inputs
 
+#ifdef ENABLE_SIGNALK
+  bool enable_signalk_output = true;
+#else
+  bool enable_signalk_output = false;
+#endif
+
   // Connect the tank senders.
   // EDIT: To enable more tanks, uncomment the lines below.
-  auto tank_a1_volume = ConnectTankSender(ads1115, 0, "fuel");
+  auto tank_a1_volume = ConnectTankSender(ads1115, 0, "Fuel", "fuel.main", 3000,
+                                          enable_signalk_output);
   // auto tank_a2_volume = ConnectTankSender(ads1115, 1, "A2");
   // auto tank_a3_volume = ConnectTankSender(ads1115, 2, "A3");
   // auto tank_a4_volume = ConnectTankSender(ads1115, 3, "A4");
 
 #ifdef ENABLE_NMEA2000_OUTPUT
-  // Tank 1, instance 0. Capacity 200 liters.
+  // Tank 1, instance 0. Capacity 200 liters. You can change the capacity
+  // in the web UI as well.
   // EDIT: Make sure this matches your tank configuration above.
   N2kFluidLevelSender* tank_a1_sender = new N2kFluidLevelSender(
-      "/NMEA 2000/Tank 1", 0, N2kft_Fuel, 200, nmea2000);
-  tank_a1_volume->connect_to(&(tank_a1_sender->tank_level_consumer_));
+      "/Tanks/Fuel/NMEA 2000", 0, N2kft_Fuel, 200, nmea2000);
+
+  ConfigItem(tank_a1_sender)
+      ->set_title("Tank A1 NMEA 2000")
+      ->set_description("NMEA 2000 tank sender for tank A1")
+      ->set_sort_order(3005);
+
+  tank_a1_volume->connect_to(&(tank_a1_sender->tank_level_));
 #endif  // ENABLE_NMEA2000_OUTPUT
 
   if (display_present) {
@@ -212,6 +239,34 @@ void setup() {
     tank_a1_volume->connect_to(new LambdaConsumer<float>(
         [](float value) { PrintValue(display, 2, "Tank A1", 100 * value); }));
   }
+
+  // Read the voltage level of analog input A2
+  auto a2_voltage = new ADS1115VoltageInput(ads1115, 1, "/Voltage A2");
+
+  ConfigItem(a2_voltage)
+      ->set_title("Analog Voltage A2")
+      ->set_description("Voltage level of analog input A2")
+      ->set_sort_order(3000);
+
+  a2_voltage->connect_to(new LambdaConsumer<float>(
+      [](float value) { debugD("Voltage A2: %f", value); }));
+
+  // If you want to output something else than the voltage value,
+  // you can insert a suitable transform here.
+  // For example, to convert the voltage to a distance with a conversion
+  // factor of 0.17 m/V, you could use the following code:
+  // auto a2_distance = new Linear(0.17, 0.0);
+  // a2_voltage->connect_to(a2_distance);
+
+#ifdef ENABLE_SIGNALK
+  a2_voltage->connect_to(
+      new SKOutputFloat("Analog Voltage A2", "sensors.a2.voltage",
+                        new SKMetadata("Analog Voltage A2", "V")));
+  // Example of how to output the distance value to Signal K.
+  // a2_distance->connect_to(
+  //     new SKOutputFloat("Analog Distance A2", "sensors.a2.distance",
+  //                       new SKMetadata("Analog Distance A2", "m")));
+#endif
 
   ///////////////////////////////////////////////////////////////////
   // Digital alarm inputs
@@ -240,12 +295,17 @@ void setup() {
   N2kEngineParameterDynamicSender* engine_dynamic_sender =
       new N2kEngineParameterDynamicSender("/NMEA 2000/Engine 1 Dynamic", 0,
                                           nmea2000);
-  alarm_d2_input->connect_to(
-      &(engine_dynamic_sender->low_oil_pressure_consumer_));
+
+  ConfigItem(engine_dynamic_sender)
+      ->set_title("Engine 1 Dynamic")
+      ->set_description("NMEA 2000 dynamic engine parameters for engine 1")
+      ->set_sort_order(3010);
+
+  alarm_d2_input->connect_to(engine_dynamic_sender->low_oil_pressure_);
+
   // This is just an example -- normally temperature alarms would not be
   // active-low (inverted).
-  alarm_d3_inverted->connect_to(
-      &(engine_dynamic_sender->over_temperature_consumer_));
+  alarm_d3_inverted->connect_to(engine_dynamic_sender->over_temperature_);
 #endif  // ENABLE_NMEA2000_OUTPUT
 
   // FIXME: Transmit the alarms over SK as well.
@@ -265,11 +325,18 @@ void setup() {
   N2kEngineParameterRapidSender* engine_rapid_sender =
       new N2kEngineParameterRapidSender("/NMEA 2000/Engine 1 Rapid Update", 0,
                                         nmea2000);  // Engine 1, instance 0
-  tacho_d1_frequency->connect_to(&(engine_rapid_sender->engine_speed_consumer_));
+
+  ConfigItem(engine_rapid_sender)
+      ->set_title("Engine 1 Rapid Update")
+      ->set_description("NMEA 2000 rapid update engine parameters for engine 1")
+      ->set_sort_order(3015);
+
+  tacho_d1_frequency->connect_to(&(engine_rapid_sender->engine_speed_));
+
 #endif  // ENABLE_NMEA2000_OUTPUT
 
   if (display_present) {
-        tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
+    tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
         [](float value) { PrintValue(display, 3, "RPM D1", 60 * value); }));
   }
 
@@ -279,13 +346,13 @@ void setup() {
   // Connect the outputs to the display
   if (display_present) {
 #ifdef ENABLE_SIGNALK
-    app.onRepeat(1000, []() {
+    event_loop()->onRepeat(1000, []() {
       PrintValue(display, 1, "IP:", WiFi.localIP().toString());
     });
 #endif
 
     // Create a poor man's "christmas tree" display for the alarms
-    app.onRepeat(1000, []() {
+    event_loop()->onRepeat(1000, []() {
       char state_string[5] = {};
       for (int i = 0; i < 4; i++) {
         state_string[i] = alarm_states[i] ? '*' : '_';
@@ -294,11 +361,11 @@ void setup() {
     });
   }
 
-  ///////////////////////////////////////////////////////////////////
-  // Start the application
-
-  // Start networking, SK server connections and other SensESP internals
-  sensesp_app->start();
+  // To avoid garbage collecting all shared pointers created in setup(),
+  // loop from here.
+  while (true) {
+    loop();
+  }
 }
 
-void loop() { app.tick(); }
+void loop() { event_loop()->tick(); }
