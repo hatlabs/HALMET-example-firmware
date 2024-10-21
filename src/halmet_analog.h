@@ -43,18 +43,6 @@ class ADS1115VoltageInput : public sensesp::FloatSensor {
     root["calibration_value"] = calibration_factor_;
   };
 
-  String get_config_schema() {
-    const char SCHEMA[] = R"###({
-      "type": "object",
-      "properties": {
-          "read_interval": { "title": "Read interval", "type": "number", "description": "Number of milliseconds between each reading" },
-          "calibration_factor": { "title": "Calibration factor", "type": "number", "description": "Scale factor to fix the input calibration" }
-      }
-    })###";
-
-    return SCHEMA;
-  }
-
   bool set_configuration(const JsonObject& config) {
     String expected[] = {"read_interval"};
     if (!config["read_interval"].is<int>()) {
@@ -86,6 +74,23 @@ class ADS1115VoltageInput : public sensesp::FloatSensor {
   unsigned int read_interval_;
   float calibration_factor_;
 };
+
+inline const String ConfigSchema(const ADS1115VoltageInput& obj) {
+  const char SCHEMA[] = R"###({
+      "type": "object",
+      "properties": {
+          "read_interval": { "title": "Read interval", "type": "number", "description": "Number of milliseconds between each reading" },
+          "calibration_factor": { "title": "Calibration factor", "type": "number", "description": "Scale factor to fix the input calibration" }
+      }
+    })###";
+
+  return SCHEMA;
+}
+
+inline const bool ConfigRequiresRestart(const ADS1115VoltageInput& obj) {
+  return true;
+}
+
 
 }  // namespace halmet
 
