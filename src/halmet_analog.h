@@ -20,7 +20,7 @@ class ADS1115VoltageInput : public sensesp::FloatSensor {
  public:
   ADS1115VoltageInput(Adafruit_ADS1115* ads1115, int channel,
                       const String& config_path,
-                      unsigned int read_interval = 1000,
+                      unsigned int read_interval = 500,
                       float calibration_factor = 1.0)
       : sensesp::FloatSensor(config_path),
         ads1115_{ads1115},
@@ -38,21 +38,17 @@ class ADS1115VoltageInput : public sensesp::FloatSensor {
     this->emit(calibration_factor_ * kVoltageDividerScale * adc_output_volts);
   }
 
-  void get_configuration(JsonObject& root) {
-    root["read_delay"] = read_interval_;
-    root["calibration_value"] = calibration_factor_;
+  virtual bool to_json(JsonObject& root) override {
+    root["calibration_factor"] = calibration_factor_;
+    return true;
   };
 
-  bool set_configuration(const JsonObject& config) {
-    String expected[] = {"read_interval"};
-    if (!config["read_interval"].is<int>()) {
-      return false;
-    }
+  virtual bool from_json(const JsonObject& config) override {
     if (config["calibration_factor"].is<float>()) {
       calibration_factor_ = config["calibration_factor"];
+      return true;
     }
-    read_interval_ = config["read_interval"];
-    return true;
+    return false;
   }
 
  protected:
@@ -79,8 +75,7 @@ inline const String ConfigSchema(const ADS1115VoltageInput& obj) {
   const char SCHEMA[] = R"###({
       "type": "object",
       "properties": {
-          "read_interval": { "title": "Read interval", "type": "number", "description": "Number of milliseconds between each reading" },
-          "calibration_factor": { "title": "Calibration factor", "type": "number", "description": "Scale factor to fix the input calibration" }
+          "calibration_factor": { "title": "Calibration factor", "type": "number", "description": "Multiplier to apply to the raw input value" }
       }
     })###";
 
@@ -90,7 +85,6 @@ inline const String ConfigSchema(const ADS1115VoltageInput& obj) {
 inline const bool ConfigRequiresRestart(const ADS1115VoltageInput& obj) {
   return true;
 }
-
 
 }  // namespace halmet
 
