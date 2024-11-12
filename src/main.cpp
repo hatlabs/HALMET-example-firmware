@@ -260,12 +260,12 @@ void setup() {
 
 #ifdef ENABLE_SIGNALK
   a2_voltage->connect_to(
-      new SKOutputFloat("Analog Voltage A2", "sensors.a2.voltage",
-                        new SKMetadata("Analog Voltage A2", "V")));
+      new SKOutputFloat("sensors.a2.voltage", "Analog Voltage A2",
+                        new SKMetadata("V","Analog Voltage A2")));
   // Example of how to output the distance value to Signal K.
   // a2_distance->connect_to(
-  //     new SKOutputFloat("Analog Distance A2", "sensors.a2.distance",
-  //                       new SKMetadata("Analog Distance A2", "m")));
+  //     new SKOutputFloat("sensors.a2.distance", "Analog Distance A2",
+  //                       new SKMetadata("m", "Analog Distance A2")));
 #endif
 
   ///////////////////////////////////////////////////////////////////
