@@ -1,5 +1,5 @@
-#ifndef HALMET_SRC_HALMET_CONST_H_
-#define HALMET_SRC_HALMET_CONST_H_
+#ifndef HALMET_CONST_H_
+#define HALMET_CONST_H_
 
 #include <Arduino.h>
 
@@ -27,4 +27,4 @@ const int kDigitalInputPin4 = GPIO_NUM_26;
 
 }  // namespace sensesp
 
-#endif /* HALMET_SRC_HALMET_CONST_H_ */
+#endif /* HALMET_CONST_H_ */
