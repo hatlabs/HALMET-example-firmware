@@ -1,6 +1,7 @@
 #include "halmet_digital.h"
 
 #include "sensesp/sensors/digital_input.h"
+#include "sensesp/sensors/digital_pcnt_input.h"
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/signalk/signalk_output.h"
 #include "sensesp/transforms/frequency.h"
@@ -22,8 +23,12 @@ FloatProducer* ConnectTachoSender(int pin, String name) {
   snprintf(config_title, sizeof(config_title), "Tacho %s Pin", name.c_str());
   snprintf(config_description, sizeof(config_description), "Tacho %s Input Pin",
            name.c_str());
+  // Hardware pulse counter (PCNT) rather than the interrupt-based
+  // DigitalInputCounter: the software ISR drops edges under load (flash, WiFi,
+  // and N2K interrupt masking), reading progressively low and jittery as rpm
+  // rises. PCNT counts edges in hardware, immune to that.
   auto tacho_input =
-      new DigitalInputCounter(pin, INPUT, RISING, 500, config_path);
+      new DigitalInputPcntCounter(pin, INPUT, RISING, 500, config_path);
 
   ConfigItem(tacho_input)
       ->set_title(config_title)
@@ -52,7 +57,14 @@ FloatProducer* ConnectTachoSender(int pin, String name) {
   snprintf(config_description, sizeof(config_description),
            "Tacho %s Signal K Path", name.c_str());
 
-  auto tacho_frequency_sk_output = new SKOutputFloat(sk_path, config_path);
+  char meta_display_name[80];
+  snprintf(meta_display_name, sizeof(meta_display_name), "Revolutions %s",
+           name.c_str());
+
+  auto tacho_frequency_sk_output = new SKOutputFloat(
+      sk_path, config_path,
+      new SKMetadata("Hz", meta_display_name,
+                     "Engine revolutions (x60 for RPM)"));
 
   ConfigItem(tacho_frequency_sk_output)
       ->set_title(config_title)
