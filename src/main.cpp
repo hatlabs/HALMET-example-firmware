@@ -11,6 +11,10 @@
 // Comment out this line to disable NMEA 2000 output.
 #define ENABLE_NMEA2000_OUTPUT
 
+// Comment out this line to disable Signal K support. At the moment, disabling
+// Signal K support also disables all WiFi functionality.
+#define ENABLE_SIGNALK
+
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -32,8 +36,17 @@
 #include "sensesp/ui/config_item.h"
 #include "sensesp/ui/status_page_item.h"
 #include "sensesp/ui/ui_controls.h"
+#ifdef ENABLE_SIGNALK
 #include "sensesp_app_builder.h"
 #define BUILDER_CLASS SensESPAppBuilder
+#else
+#include "sensesp/net/web/app_command_handler.h"
+#include "sensesp/net/web/base_command_handler.h"
+#include "sensesp/net/web/config_handler.h"
+#include "sensesp/net/web/static_file_handler.h"
+#include "sensesp_minimal_app_builder.h"
+#define BUILDER_CLASS SensESPMinimalAppBuilder
+#endif
 
 #include "halmet_analog.h"
 #include "halmet_const.h"
@@ -45,6 +58,15 @@
 
 using namespace sensesp;
 using namespace halmet;
+
+#ifndef ENABLE_SIGNALK
+// SensESPMinimalApp creates none of these; the web UI needs them.
+std::shared_ptr<SensESPMinimalApp> sensesp_app;
+std::shared_ptr<Networking> networking;
+std::shared_ptr<MDNSDiscovery> mdns_discovery;
+std::shared_ptr<HTTPServer> http_server;
+std::shared_ptr<SystemStatusLed> system_status_led;
+#endif
 
 /////////////////////////////////////////////////////////////////////
 // Declare some global variables required for the firmware operation.
@@ -107,12 +129,28 @@ void setup() {
                     // EDIT: Set a custom hostname for the app.
                     ->set_hostname("halmet")
                     // EDIT: Optionally, hard-code the WiFi and Signal K server
-                    // settings. This is normally not needed.
+                    // settings. This is normally not needed. These three calls
+                    // exist only on SensESPAppBuilder and do not compile when
+                    // ENABLE_SIGNALK is commented out (SensESPMinimalAppBuilder).
                     //->set_wifi("My WiFi SSID", "my_wifi_password")
                     //->set_sk_server("192.168.10.3", 80)
                     // EDIT: Enable OTA updates with a password.
                     //->enable_ota("my_ota_password")
                     ->get_app();
+
+#ifndef ENABLE_SIGNALK
+  // Initialize components that would normally be present in SensESPApp
+  networking = std::make_shared<Networking>("/System/WiFi Settings", "", "");
+  mdns_discovery = std::make_shared<MDNSDiscovery>();
+  http_server = std::make_shared<HTTPServer>();
+  // Nothing drives the LED here; SensESPApp is what connects it to the
+  // system status controller.
+  system_status_led = std::make_shared<SystemStatusLed>(LED_BUILTIN);
+  add_static_file_handlers(http_server);
+  add_base_app_http_command_handlers(http_server);
+  add_app_http_command_handlers(http_server, networking);
+  add_config_handlers(http_server);
+#endif
 
   // initialize the I2C bus
   i2c = new TwoWire(0);
@@ -208,7 +246,11 @@ void setup() {
   ///////////////////////////////////////////////////////////////////
   // Analog inputs
 
+#ifdef ENABLE_SIGNALK
   bool enable_signalk_output = true;
+#else
+  bool enable_signalk_output = false;
+#endif
 
   // Connect the tank senders.
   // EDIT: To enable more tanks, uncomment the lines below.
@@ -257,6 +299,7 @@ void setup() {
   // auto a2_distance = new Linear(0.17, 0.0);
   // a2_voltage->connect_to(a2_distance);
 
+#ifdef ENABLE_SIGNALK
   a2_voltage->connect_to(
       new SKOutputFloat("sensors.a2.voltage", "Analog Voltage A2",
                         new SKMetadata("V", "Analog Voltage A2")));
@@ -264,15 +307,19 @@ void setup() {
   // a2_distance->connect_to(
   //     new SKOutputFloat("sensors.a2.distance", "Analog Distance A2",
   //                       new SKMetadata("m", "Analog Distance A2")));
+#endif
 
   ///////////////////////////////////////////////////////////////////
   // Digital alarm inputs
 
   // EDIT: More alarm inputs can be defined by duplicating the lines below.
   // Make sure to not define a pin for both a tacho and an alarm.
-  auto alarm_d2_input = ConnectAlarmSender(kDigitalInputPin2, "D2");
-  auto alarm_d3_input = ConnectAlarmSender(kDigitalInputPin3, "D3");
-  // auto alarm_d4_input = ConnectAlarmSender(kDigitalInputPin4, "D4");
+  auto alarm_d2_input =
+      ConnectAlarmSender(kDigitalInputPin2, "D2", enable_signalk_output);
+  auto alarm_d3_input =
+      ConnectAlarmSender(kDigitalInputPin3, "D3", enable_signalk_output);
+  // auto alarm_d4_input =
+  //     ConnectAlarmSender(kDigitalInputPin4, "D4", enable_signalk_output);
 
   // Update the alarm states based on the input value changes.
   // EDIT: If you added more alarm inputs, uncomment the respective lines below.
@@ -312,7 +359,8 @@ void setup() {
 
   // Connect the tacho senders. Engine name is "main".
   // EDIT: More tacho inputs can be defined by duplicating the line below.
-  auto tacho_d1_frequency = ConnectTachoSender(kDigitalInputPin1, "main");
+  auto tacho_d1_frequency =
+      ConnectTachoSender(kDigitalInputPin1, "main", enable_signalk_output);
 
 #ifdef ENABLE_NMEA2000_OUTPUT
   // Connect outputs to the N2k senders.

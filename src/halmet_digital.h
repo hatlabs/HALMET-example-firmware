@@ -5,7 +5,9 @@
 
 using namespace sensesp;
 
-FloatProducer* ConnectTachoSender(int pin, String name);
-BoolProducer* ConnectAlarmSender(int pin, String name);
+FloatProducer* ConnectTachoSender(int pin, String name,
+                                  bool enable_signalk_output = true);
+BoolProducer* ConnectAlarmSender(int pin, String name,
+                                 bool enable_signalk_output = true);
 
 #endif
