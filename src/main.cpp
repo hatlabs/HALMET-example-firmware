@@ -8,10 +8,16 @@
 // Remove the parts that are not relevant to you, and add your own code
 // for external hardware libraries.
 
+// Comment out this line to disable NMEA 2000 output.
+#define ENABLE_NMEA2000_OUTPUT
+
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <NMEA2000_esp32.h>
+
+#include <memory>
+
+#include "counting_nmea2000.h"
 
 #include "n2k_senders.h"
 #include "sensesp/net/discovery.h"
@@ -24,6 +30,7 @@
 #include "sensesp/transforms/lambda_transform.h"
 #include "sensesp/transforms/linear.h"
 #include "sensesp/ui/config_item.h"
+#include "sensesp/ui/status_page_item.h"
 #include "sensesp_app_builder.h"
 #define BUILDER_CLASS SensESPAppBuilder
 
@@ -41,9 +48,12 @@ using namespace halmet;
 /////////////////////////////////////////////////////////////////////
 // Declare some global variables required for the firmware operation.
 
-tNMEA2000* nmea2000;
+#ifdef ENABLE_NMEA2000_OUTPUT
+CountingNMEA2000* nmea2000;
 elapsedMillis n2k_time_since_rx = 0;
-elapsedMillis n2k_time_since_tx = 0;
+// Received-message counter shown on the status page.
+ObservableValue<int> n2k_rx_counter{0};
+#endif
 
 TwoWire* i2c;
 Adafruit_SSD1306* display;
@@ -124,14 +134,19 @@ void setup() {
   ledcWrite(0, 4096);
 #endif
 
+#ifdef ENABLE_NMEA2000_OUTPUT
   /////////////////////////////////////////////////////////////////////
   // Initialize NMEA 2000 functionality
 
-  nmea2000 = new tNMEA2000_esp32(kCANTxPin, kCANRxPin);
+  nmea2000 = new CountingNMEA2000(kCANTxPin, kCANRxPin);
 
-  // Reserve enough buffer for sending all messages.
-  nmea2000->SetN2kCANSendFrameBufSize(250);
-  nmea2000->SetN2kCANReceiveFrameBufSize(250);
+  // The send buffer was reduced from this example's earlier 250 frames to 96
+  // (about 2.5 KB) to reclaim contiguous heap for the mbedTLS record
+  // allocation -- raising it back can reintroduce MBEDTLS_ERR_SSL_ALLOC_FAILED;
+  // re-check the largest free block on the status page before doing so. The
+  // receive side is not set: NMEA2000_twai uses fixed 40-entry TWAI queues and
+  // ignores SetN2kCANReceiveFrameBufSize.
+  nmea2000->SetN2kCANSendFrameBufSize(96);
 
   // Set Product information
   // EDIT: Change the values below to match your device.
@@ -162,10 +177,29 @@ void setup() {
                     71  // Default N2k node address
   );
   nmea2000->EnableForward(false);
+
+  // Count received N2K messages and feed the watchdog.
+  nmea2000->SetMsgHandler([](const tN2kMsg&) {
+    n2k_rx_counter.set(n2k_rx_counter.get() + 1);
+    n2k_time_since_rx = 0;
+  });
+
   nmea2000->Open();
 
   // No need to parse the messages at every single loop iteration; 1 ms will do
   event_loop()->onRepeat(1, []() { nmea2000->ParseMessages(); });
+
+  // NMEA 2000 message counters on the status page. TX is tallied by
+  // CountingNMEA2000 on each accepted SendMsg; RX by the handler above.
+  // connect_to() copies these shared_ptrs into the producer's observer list, so
+  // they keep themselves alive.
+  auto n2k_rx_status = std::make_shared<StatusPageItem<int>>(
+      "NMEA 2000 Received Messages", 0, "NMEA 2000", 300);
+  n2k_rx_counter.connect_to(n2k_rx_status);
+  auto n2k_tx_status = std::make_shared<StatusPageItem<int>>(
+      "NMEA 2000 Transmitted Messages", 0, "NMEA 2000", 310);
+  nmea2000->tx_count_.connect_to(n2k_tx_status);
+#endif  // ENABLE_NMEA2000_OUTPUT
 
   // Initialize the OLED display
   bool display_present = InitializeSSD1306(sensesp_app->get(), &display, i2c);
@@ -251,6 +285,7 @@ void setup() {
   // alarm_d4_input->connect_to(
   //     new LambdaConsumer<bool>([](bool value) { alarm_states[3] = value; }));
 
+#ifdef ENABLE_NMEA2000_OUTPUT
   // EDIT: This example connects the D2 alarm input to the low oil pressure
   // warning. Modify according to your needs.
   N2kEngineParameterDynamicSender* engine_dynamic_sender =
@@ -267,6 +302,7 @@ void setup() {
   // This is just an example -- normally temperature alarms would not be
   // active-low (inverted).
   alarm_d3_inverted->connect_to(engine_dynamic_sender->over_temperature_);
+#endif  // ENABLE_NMEA2000_OUTPUT
 
   // FIXME: Transmit the alarms over SK as well.
 
@@ -277,6 +313,7 @@ void setup() {
   // EDIT: More tacho inputs can be defined by duplicating the line below.
   auto tacho_d1_frequency = ConnectTachoSender(kDigitalInputPin1, "main");
 
+#ifdef ENABLE_NMEA2000_OUTPUT
   // Connect outputs to the N2k senders.
   // EDIT: Make sure this matches your tacho configuration above.
   //       Duplicate the lines below to connect more tachos, but be sure to
@@ -291,6 +328,7 @@ void setup() {
       ->set_sort_order(3015);
 
   tacho_d1_frequency->connect_to(&(engine_rapid_sender->engine_speed_));
+#endif  // ENABLE_NMEA2000_OUTPUT
 
   if (display_present) {
     tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
