@@ -1,0 +1,30 @@
+# sdkconfig for the espidf+arduino dual build (env:halmet_espidf). It is only
+# authoritative under the source build; the precompiled-arduino env (halmet)
+# ignores this file entirely. Mirrors SensESP's root sdkconfig.defaults for the
+# ESP32, with the flash size raised to match HALMET's default_8MB partition
+# table.
+#
+# AUTOSTART_ARDUINO + FREERTOS_HZ=1000 are required by the Arduino core.
+CONFIG_AUTOSTART_ARDUINO=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_MBEDTLS_PSK_MODES=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
+CONFIG_ESPTOOLPY_FLASHFREQ="80m"
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+
+# Allocate/free the mbedTLS TX/RX record buffers per-operation instead of
+# holding two 16 KB buffers for the whole connection. Without this,
+# mbedtls_ssl_setup fails with MBEDTLS_ERR_SSL_ALLOC_FAILED and the TLS Signal K
+# connection never establishes. This lever is impossible with the precompiled
+# arduino libs the halmet env uses.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+
+# Enable uxTaskGetSystemState so SensESP's /api/info per-task stack report works
+# on this from-source build (default-on only in the precompiled arduino libs).
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y

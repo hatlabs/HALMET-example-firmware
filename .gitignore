@@ -3,3 +3,9 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# espidf build artifacts. dependencies.lock is committed (pins component
+# versions); sdkconfig.defaults is the tracked source of truth.
+managed_components/
+sdkconfig.*
+!sdkconfig.defaults
