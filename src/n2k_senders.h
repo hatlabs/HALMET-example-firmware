@@ -25,6 +25,7 @@ class N2kEngineParameterRapidSender : public sensesp::FileSystemSaveable {
         repeat_interval_{100},  // In ms. Dictated by NMEA 2000 standard!
         expiry_{1000}           // In ms. When the inputs expire.
   {
+    this->load();
     this->initialize_members(repeat_interval_, expiry_);
     sensesp::event_loop()->onRepeat(repeat_interval_, [this]() {
       tN2kMsg N2kMsg;
@@ -104,6 +105,7 @@ class N2kEngineParameterDynamicSender : public sensesp::FileSystemSaveable {
         repeat_interval_{500},  // In ms. Dictated by NMEA 2000 standard!
         expiry_{5000}           // In ms. When the inputs expire.
   {
+    this->load();
     this->initialize_members(repeat_interval_, expiry_);
 
     sensesp::event_loop()->onRepeat(repeat_interval_, [this]() {
@@ -326,6 +328,7 @@ class N2kFluidLevelSender : public sensesp::FileSystemSaveable {
         repeat_interval_{2500},  // In ms. Dictated by NMEA 2000 standard!
         expiry_{10000}           // In ms. When the inputs expire.
   {
+    this->load();
     tank_level_
         .connect_to(new sensesp::LambdaTransform<double, double>(
             [this](double value) { return 100 * value; }))

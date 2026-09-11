@@ -16,7 +16,7 @@ class RateLimiter : public Transform<T, T> {
   RateLimiter(unsigned int min_delay_ms, String config_path = "")
       : Transform<T, T>(config_path), min_delay_ms_{min_delay_ms} {}
 
-  virtual void set_input(T input, uint8_t input_channel = 0) override {
+  virtual void set(const T& input) override {
     unsigned long current_time = millis();
     if (current_time - last_output_time_ > min_delay_ms_) {
       this->emit(input);
