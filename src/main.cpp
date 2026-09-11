@@ -31,6 +31,7 @@
 #include "sensesp/transforms/linear.h"
 #include "sensesp/ui/config_item.h"
 #include "sensesp/ui/status_page_item.h"
+#include "sensesp/ui/ui_controls.h"
 #include "sensesp_app_builder.h"
 #define BUILDER_CLASS SensESPAppBuilder
 
@@ -335,6 +336,34 @@ void setup() {
         [](float value) { PrintValue(display, 3, "RPM D1", 60 * value); }));
   }
 
+#ifdef ENABLE_NMEA2000_OUTPUT
+  ///////////////////////////////////////////////////////////////////
+  // Configure the NMEA 2000 watchdog
+
+  CheckboxConfig* enable_n2k_watchdog_config = new CheckboxConfig(
+      false, "Enable NMEA 2000 Watchdog", "/NMEA 2000/Enable Watchdog");
+
+  ConfigItem(enable_n2k_watchdog_config)
+      ->set_title("Enable NMEA 2000 Watchdog")
+      ->set_description(
+          "Enable the NMEA 2000 watchdog. If enabled, the device will reboot "
+          "after two minutes if no NMEA 2000 messages are received. This "
+          "setting requires a restart to take effect.")
+      ->set_sort_order(100);
+
+  if (enable_n2k_watchdog_config->get_value()) {
+    event_loop()->onRepeat(1000, []() {
+      if (n2k_time_since_rx > 120000) {
+        ESP_LOGE("NMEA2000", "No messages received in 2 minutes. Restarting.");
+        // All hope is lost; it doesn't matter if we delay for a bit to ensure
+        // the log message is sent.
+        delay(10);
+        ESP.restart();
+      }
+    });
+  }
+#endif  // ENABLE_NMEA2000_OUTPUT
+
   ///////////////////////////////////////////////////////////////////
   // Display setup
 
@@ -353,6 +382,21 @@ void setup() {
       PrintValue(display, 4, "Alarm", state_string);
     });
   }
+
+  // Heap and main-loop-stack diagnostics on the status page. The largest free
+  // block is what the TLS handshake needs as one contiguous allocation.
+  auto largest_block_status = std::make_shared<StatusPageItem<int>>(
+      "Largest free block (bytes)", 0, "System", 250);
+  event_loop()->onRepeat(2000, [largest_block_status]() {
+    largest_block_status->set(static_cast<int>(ESP.getMaxAllocHeap()));
+  });
+
+  auto main_loop_stack_status = std::make_shared<StatusPageItem<int>>(
+      "Main loop min free stack (bytes)", 0, "System", 260);
+  event_loop()->onRepeat(2000, [main_loop_stack_status]() {
+    main_loop_stack_status->set(
+        static_cast<int>(uxTaskGetStackHighWaterMark(nullptr)));
+  });
 
   // To avoid garbage collecting all shared pointers created in setup(),
   // loop from here.
