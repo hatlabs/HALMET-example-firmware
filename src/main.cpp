@@ -170,7 +170,7 @@ void setup() {
   // Set the duty cycle to 50%
   // Duty cycle value is calculated based on the resolution
   // For 13-bit resolution, max value is 8191, so 50% is 4096
-  ledcWrite(0, 4096);
+  ledcWrite(kTestOutputPin, 4096);
 #endif
 
 #ifdef ENABLE_NMEA2000_OUTPUT
