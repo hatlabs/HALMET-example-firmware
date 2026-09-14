@@ -8,8 +8,8 @@
 // tNMEA2000_esp32 that counts the N2K messages SendMsg accepted (returned
 // true), so the TX count lives in one place (the bus) rather than being
 // replicated across every sender. Accepted means every frame was handed to the
-// TWAI driver or queued in the library's send buffer (sized in main.cpp).
-// Not counted: sends while the address claim is still pending, or
+// TWAI driver or queued in the library's send buffer (96 frames, see
+// main.cpp). Not counted: sends while the address claim is still pending, or
 // once that send buffer is full. A bus-off shows up here only after the buffer
 // has filled.
 //
