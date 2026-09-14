@@ -4,6 +4,7 @@
 #include <N2kMessages.h>
 #include <NMEA2000.h>
 
+#include "counting_nmea2000.h"
 #include "sensesp/system/saveable.h"
 #include "sensesp/transforms/lambda_transform.h"
 #include "sensesp/transforms/repeat.h"
@@ -18,13 +19,14 @@ namespace halmet {
 class N2kEngineParameterRapidSender : public sensesp::FileSystemSaveable {
  public:
   N2kEngineParameterRapidSender(String config_path, uint8_t engine_instance,
-                                tNMEA2000* nmea2000)
+                                CountingNMEA2000* nmea2000)
       : sensesp::FileSystemSaveable{config_path},
         engine_instance_{engine_instance},
         nmea2000_{nmea2000},
         repeat_interval_{100},  // In ms. Dictated by NMEA 2000 standard!
         expiry_{1000}           // In ms. When the inputs expire.
   {
+    this->load();
     this->initialize_members(repeat_interval_, expiry_);
     sensesp::event_loop()->onRepeat(repeat_interval_, [this]() {
       tN2kMsg N2kMsg;
@@ -63,7 +65,7 @@ class N2kEngineParameterRapidSender : public sensesp::FileSystemSaveable {
  protected:
   unsigned int repeat_interval_;
   unsigned int expiry_;
-  tNMEA2000* nmea2000_;
+  CountingNMEA2000* nmea2000_;
 
   std::shared_ptr<sensesp::RepeatExpiring<double>> engine_speed_rpm_;
 
@@ -97,13 +99,14 @@ const String ConfigSchema(const N2kEngineParameterRapidSender& obj) {
 class N2kEngineParameterDynamicSender : public sensesp::FileSystemSaveable {
  public:
   N2kEngineParameterDynamicSender(String config_path, uint8_t engine_instance,
-                                  tNMEA2000* nmea2000)
+                                  CountingNMEA2000* nmea2000)
       : sensesp::FileSystemSaveable{config_path},
         engine_instance_{engine_instance},
         nmea2000_{nmea2000},
         repeat_interval_{500},  // In ms. Dictated by NMEA 2000 standard!
         expiry_{5000}           // In ms. When the inputs expire.
   {
+    this->load();
     this->initialize_members(repeat_interval_, expiry_);
 
     sensesp::event_loop()->onRepeat(repeat_interval_, [this]() {
@@ -221,7 +224,7 @@ class N2kEngineParameterDynamicSender : public sensesp::FileSystemSaveable {
 
   unsigned int repeat_interval_;
   unsigned int expiry_;
-  tNMEA2000* nmea2000_;
+  CountingNMEA2000* nmea2000_;
 
   uint8_t engine_instance_;
 
@@ -317,7 +320,7 @@ class N2kFluidLevelSender : public sensesp::FileSystemSaveable {
  public:
   N2kFluidLevelSender(String config_path, uint8_t tank_instance,
                       tN2kFluidType tank_type, double tank_capacity,
-                      tNMEA2000* nmea2000)
+                      CountingNMEA2000* nmea2000)
       : sensesp::FileSystemSaveable{config_path},
         tank_instance_{tank_instance},
         tank_type_{tank_type},
@@ -326,6 +329,7 @@ class N2kFluidLevelSender : public sensesp::FileSystemSaveable {
         repeat_interval_{2500},  // In ms. Dictated by NMEA 2000 standard!
         expiry_{10000}           // In ms. When the inputs expire.
   {
+    this->load();
     tank_level_
         .connect_to(new sensesp::LambdaTransform<double, double>(
             [this](double value) { return 100 * value; }))
@@ -368,7 +372,7 @@ class N2kFluidLevelSender : public sensesp::FileSystemSaveable {
  protected:
   unsigned int repeat_interval_;
   unsigned int expiry_;
-  tNMEA2000* nmea2000_;
+  CountingNMEA2000* nmea2000_;
 
   uint8_t tank_instance_;
   tN2kFluidType tank_type_;

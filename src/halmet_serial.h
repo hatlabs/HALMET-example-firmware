@@ -1,5 +1,5 @@
-#ifndef HALMET_SRC_HALMET_SERIAL_H_
-#define HALMET_SRC_HALMET_SERIAL_H_
+#ifndef HALMET_SERIAL_H_
+#define HALMET_SERIAL_H_
 
 #include <esp_mac.h>
 
@@ -13,4 +13,4 @@ uint64_t GetBoardSerialNumber() {
          ((uint64_t)chipid[4] << 32) + ((uint64_t)chipid[5] << 40);
 }
 
-#endif  // HALMET_SRC_HALMET_SERIAL_H_
+#endif  // HALMET_SERIAL_H_

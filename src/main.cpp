@@ -8,10 +8,20 @@
 // Remove the parts that are not relevant to you, and add your own code
 // for external hardware libraries.
 
+// Comment out this line to disable NMEA 2000 output.
+#define ENABLE_NMEA2000_OUTPUT
+
+// Comment out this line to disable Signal K support. At the moment, disabling
+// Signal K support also disables all WiFi functionality.
+#define ENABLE_SIGNALK
+
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <NMEA2000_esp32.h>
+
+#include <memory>
+
+#include "counting_nmea2000.h"
 
 #include "n2k_senders.h"
 #include "sensesp/net/discovery.h"
@@ -24,8 +34,19 @@
 #include "sensesp/transforms/lambda_transform.h"
 #include "sensesp/transforms/linear.h"
 #include "sensesp/ui/config_item.h"
+#include "sensesp/ui/status_page_item.h"
+#include "sensesp/ui/ui_controls.h"
+#ifdef ENABLE_SIGNALK
 #include "sensesp_app_builder.h"
 #define BUILDER_CLASS SensESPAppBuilder
+#else
+#include "sensesp/net/web/app_command_handler.h"
+#include "sensesp/net/web/base_command_handler.h"
+#include "sensesp/net/web/config_handler.h"
+#include "sensesp/net/web/static_file_handler.h"
+#include "sensesp_minimal_app_builder.h"
+#define BUILDER_CLASS SensESPMinimalAppBuilder
+#endif
 
 #include "halmet_analog.h"
 #include "halmet_const.h"
@@ -38,12 +59,24 @@
 using namespace sensesp;
 using namespace halmet;
 
+#ifndef ENABLE_SIGNALK
+// SensESPMinimalApp creates none of these; the web UI needs them.
+std::shared_ptr<SensESPMinimalApp> sensesp_app;
+std::shared_ptr<Networking> networking;
+std::shared_ptr<MDNSDiscovery> mdns_discovery;
+std::shared_ptr<HTTPServer> http_server;
+std::shared_ptr<SystemStatusLed> system_status_led;
+#endif
+
 /////////////////////////////////////////////////////////////////////
 // Declare some global variables required for the firmware operation.
 
-tNMEA2000* nmea2000;
+#ifdef ENABLE_NMEA2000_OUTPUT
+CountingNMEA2000* nmea2000;
 elapsedMillis n2k_time_since_rx = 0;
-elapsedMillis n2k_time_since_tx = 0;
+// Received-message counter shown on the status page.
+ObservableValue<int> n2k_rx_counter{0};
+#endif
 
 TwoWire* i2c;
 Adafruit_SSD1306* display;
@@ -96,12 +129,28 @@ void setup() {
                     // EDIT: Set a custom hostname for the app.
                     ->set_hostname("halmet")
                     // EDIT: Optionally, hard-code the WiFi and Signal K server
-                    // settings. This is normally not needed.
+                    // settings. This is normally not needed. These three calls
+                    // exist only on SensESPAppBuilder and do not compile when
+                    // ENABLE_SIGNALK is commented out (SensESPMinimalAppBuilder).
                     //->set_wifi("My WiFi SSID", "my_wifi_password")
                     //->set_sk_server("192.168.10.3", 80)
                     // EDIT: Enable OTA updates with a password.
                     //->enable_ota("my_ota_password")
                     ->get_app();
+
+#ifndef ENABLE_SIGNALK
+  // Initialize components that would normally be present in SensESPApp
+  networking = std::make_shared<Networking>("/System/WiFi Settings", "", "");
+  mdns_discovery = std::make_shared<MDNSDiscovery>();
+  http_server = std::make_shared<HTTPServer>();
+  // Nothing drives the LED here; SensESPApp is what connects it to the
+  // system status controller.
+  system_status_led = std::make_shared<SystemStatusLed>(LED_BUILTIN);
+  add_static_file_handlers(http_server);
+  add_base_app_http_command_handlers(http_server);
+  add_app_http_command_handlers(http_server, networking);
+  add_config_handlers(http_server);
+#endif
 
   // initialize the I2C bus
   i2c = new TwoWire(0);
@@ -121,17 +170,22 @@ void setup() {
   // Set the duty cycle to 50%
   // Duty cycle value is calculated based on the resolution
   // For 13-bit resolution, max value is 8191, so 50% is 4096
-  ledcWrite(0, 4096);
+  ledcWrite(kTestOutputPin, 4096);
 #endif
 
+#ifdef ENABLE_NMEA2000_OUTPUT
   /////////////////////////////////////////////////////////////////////
   // Initialize NMEA 2000 functionality
 
-  nmea2000 = new tNMEA2000_esp32(kCANTxPin, kCANRxPin);
+  nmea2000 = new CountingNMEA2000(kCANTxPin, kCANRxPin);
 
-  // Reserve enough buffer for sending all messages.
-  nmea2000->SetN2kCANSendFrameBufSize(250);
-  nmea2000->SetN2kCANReceiveFrameBufSize(250);
+  // The send buffer was reduced from this example's earlier 250 frames to 96
+  // (about 2.5 KB) to reclaim contiguous heap for the mbedTLS record
+  // allocation -- raising it back can reintroduce MBEDTLS_ERR_SSL_ALLOC_FAILED;
+  // re-check the largest free block on the status page before doing so. The
+  // receive side is not set: NMEA2000_twai uses fixed 40-entry TWAI queues and
+  // ignores SetN2kCANReceiveFrameBufSize.
+  nmea2000->SetN2kCANSendFrameBufSize(96);
 
   // Set Product information
   // EDIT: Change the values below to match your device.
@@ -162,10 +216,29 @@ void setup() {
                     71  // Default N2k node address
   );
   nmea2000->EnableForward(false);
+
+  // Count received N2K messages and feed the watchdog.
+  nmea2000->SetMsgHandler([](const tN2kMsg&) {
+    n2k_rx_counter.set(n2k_rx_counter.get() + 1);
+    n2k_time_since_rx = 0;
+  });
+
   nmea2000->Open();
 
   // No need to parse the messages at every single loop iteration; 1 ms will do
   event_loop()->onRepeat(1, []() { nmea2000->ParseMessages(); });
+
+  // NMEA 2000 message counters on the status page. TX is tallied by
+  // CountingNMEA2000 on each accepted SendMsg; RX by the handler above.
+  // connect_to() copies these shared_ptrs into the producer's observer list, so
+  // they keep themselves alive.
+  auto n2k_rx_status = std::make_shared<StatusPageItem<int>>(
+      "NMEA 2000 Received Messages", 0, "NMEA 2000", 300);
+  n2k_rx_counter.connect_to(n2k_rx_status);
+  auto n2k_tx_status = std::make_shared<StatusPageItem<int>>(
+      "NMEA 2000 Transmitted Messages", 0, "NMEA 2000", 310);
+  nmea2000->tx_count_.connect_to(n2k_tx_status);
+#endif  // ENABLE_NMEA2000_OUTPUT
 
   // Initialize the OLED display
   bool display_present = InitializeSSD1306(sensesp_app->get(), &display, i2c);
@@ -173,7 +246,11 @@ void setup() {
   ///////////////////////////////////////////////////////////////////
   // Analog inputs
 
+#ifdef ENABLE_SIGNALK
   bool enable_signalk_output = true;
+#else
+  bool enable_signalk_output = false;
+#endif
 
   // Connect the tank senders.
   // EDIT: To enable more tanks, uncomment the lines below.
@@ -222,6 +299,7 @@ void setup() {
   // auto a2_distance = new Linear(0.17, 0.0);
   // a2_voltage->connect_to(a2_distance);
 
+#ifdef ENABLE_SIGNALK
   a2_voltage->connect_to(
       new SKOutputFloat("sensors.a2.voltage", "Analog Voltage A2",
                         new SKMetadata("V", "Analog Voltage A2")));
@@ -229,15 +307,19 @@ void setup() {
   // a2_distance->connect_to(
   //     new SKOutputFloat("sensors.a2.distance", "Analog Distance A2",
   //                       new SKMetadata("m", "Analog Distance A2")));
+#endif
 
   ///////////////////////////////////////////////////////////////////
   // Digital alarm inputs
 
   // EDIT: More alarm inputs can be defined by duplicating the lines below.
   // Make sure to not define a pin for both a tacho and an alarm.
-  auto alarm_d2_input = ConnectAlarmSender(kDigitalInputPin2, "D2");
-  auto alarm_d3_input = ConnectAlarmSender(kDigitalInputPin3, "D3");
-  // auto alarm_d4_input = ConnectAlarmSender(kDigitalInputPin4, "D4");
+  auto alarm_d2_input =
+      ConnectAlarmSender(kDigitalInputPin2, "D2", enable_signalk_output);
+  auto alarm_d3_input =
+      ConnectAlarmSender(kDigitalInputPin3, "D3", enable_signalk_output);
+  // auto alarm_d4_input =
+  //     ConnectAlarmSender(kDigitalInputPin4, "D4", enable_signalk_output);
 
   // Update the alarm states based on the input value changes.
   // EDIT: If you added more alarm inputs, uncomment the respective lines below.
@@ -251,6 +333,7 @@ void setup() {
   // alarm_d4_input->connect_to(
   //     new LambdaConsumer<bool>([](bool value) { alarm_states[3] = value; }));
 
+#ifdef ENABLE_NMEA2000_OUTPUT
   // EDIT: This example connects the D2 alarm input to the low oil pressure
   // warning. Modify according to your needs.
   N2kEngineParameterDynamicSender* engine_dynamic_sender =
@@ -267,6 +350,7 @@ void setup() {
   // This is just an example -- normally temperature alarms would not be
   // active-low (inverted).
   alarm_d3_inverted->connect_to(engine_dynamic_sender->over_temperature_);
+#endif  // ENABLE_NMEA2000_OUTPUT
 
   // FIXME: Transmit the alarms over SK as well.
 
@@ -275,8 +359,10 @@ void setup() {
 
   // Connect the tacho senders. Engine name is "main".
   // EDIT: More tacho inputs can be defined by duplicating the line below.
-  auto tacho_d1_frequency = ConnectTachoSender(kDigitalInputPin1, "main");
+  auto tacho_d1_frequency =
+      ConnectTachoSender(kDigitalInputPin1, "main", enable_signalk_output);
 
+#ifdef ENABLE_NMEA2000_OUTPUT
   // Connect outputs to the N2k senders.
   // EDIT: Make sure this matches your tacho configuration above.
   //       Duplicate the lines below to connect more tachos, but be sure to
@@ -291,11 +377,41 @@ void setup() {
       ->set_sort_order(3015);
 
   tacho_d1_frequency->connect_to(&(engine_rapid_sender->engine_speed_));
+#endif  // ENABLE_NMEA2000_OUTPUT
 
   if (display_present) {
     tacho_d1_frequency->connect_to(new LambdaConsumer<float>(
         [](float value) { PrintValue(display, 3, "RPM D1", 60 * value); }));
   }
+
+#ifdef ENABLE_NMEA2000_OUTPUT
+  ///////////////////////////////////////////////////////////////////
+  // Configure the NMEA 2000 watchdog
+
+  CheckboxConfig* enable_n2k_watchdog_config = new CheckboxConfig(
+      false, "Enable NMEA 2000 Watchdog", "/NMEA 2000/Enable Watchdog");
+
+  ConfigItem(enable_n2k_watchdog_config)
+      ->set_title("Enable NMEA 2000 Watchdog")
+      ->set_description(
+          "Enable the NMEA 2000 watchdog. If enabled, the device will reboot "
+          "after two minutes if no NMEA 2000 messages are received. This "
+          "setting requires a restart to take effect.")
+      ->set_sort_order(100)
+      ->set_requires_restart(true);
+
+  if (enable_n2k_watchdog_config->get_value()) {
+    event_loop()->onRepeat(1000, []() {
+      if (n2k_time_since_rx > 120000) {
+        ESP_LOGE("NMEA2000", "No messages received in 2 minutes. Restarting.");
+        // All hope is lost; it doesn't matter if we delay for a bit to ensure
+        // the log message is sent.
+        delay(10);
+        ESP.restart();
+      }
+    });
+  }
+#endif  // ENABLE_NMEA2000_OUTPUT
 
   ///////////////////////////////////////////////////////////////////
   // Display setup
@@ -315,6 +431,21 @@ void setup() {
       PrintValue(display, 4, "Alarm", state_string);
     });
   }
+
+  // Heap and main-loop-stack diagnostics on the status page. The largest free
+  // block is what the TLS handshake needs as one contiguous allocation.
+  auto largest_block_status = std::make_shared<StatusPageItem<int>>(
+      "Largest free block (bytes)", 0, "System", 250);
+  event_loop()->onRepeat(2000, [largest_block_status]() {
+    largest_block_status->set(static_cast<int>(ESP.getMaxAllocHeap()));
+  });
+
+  auto main_loop_stack_status = std::make_shared<StatusPageItem<int>>(
+      "Main loop min free stack (bytes)", 0, "System", 260);
+  event_loop()->onRepeat(2000, [main_loop_stack_status]() {
+    main_loop_stack_status->set(
+        static_cast<int>(uxTaskGetStackHighWaterMark(nullptr)));
+  });
 
   // To avoid garbage collecting all shared pointers created in setup(),
   // loop from here.
