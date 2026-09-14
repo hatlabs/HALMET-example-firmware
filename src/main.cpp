@@ -397,7 +397,8 @@ void setup() {
           "Enable the NMEA 2000 watchdog. If enabled, the device will reboot "
           "after two minutes if no NMEA 2000 messages are received. This "
           "setting requires a restart to take effect.")
-      ->set_sort_order(100);
+      ->set_sort_order(100)
+      ->set_requires_restart(true);
 
   if (enable_n2k_watchdog_config->get_value()) {
     event_loop()->onRepeat(1000, []() {
